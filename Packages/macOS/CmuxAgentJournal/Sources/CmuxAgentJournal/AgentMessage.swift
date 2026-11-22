@@ -143,6 +143,9 @@ public enum AgentMessageBlock: Sendable, Equatable {
     case recipientDisabled(surfaceId: String)
     /// The recipient's workspace turned messages off.
     case workspaceDisabled(workspaceId: String)
+    /// Two agent surfaces (sorted ids) used up their message allowance; a
+    /// human prompt in either one, or a raise from the app, frees more.
+    case pairLimitReached(surfaceIds: [String], limit: Int)
 
     /// Stable code stored as a failed message's ``AgentMessage/failureReason``.
     public var reason: String {
@@ -150,6 +153,7 @@ public enum AgentMessageBlock: Sendable, Equatable {
         case .messagesDisabled: return "messages_disabled"
         case .recipientDisabled: return "recipient_disabled"
         case .workspaceDisabled: return "workspace_disabled"
+        case .pairLimitReached: return "pair_limit"
         }
     }
 }

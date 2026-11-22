@@ -103,6 +103,12 @@ public final class AgentMessageStore: @unchecked Sendable {
     /// The app-wide switch (`agentMessages.enabled`), read on every send and
     /// delivery so turning it off takes effect at once.
     let isEnabled: @Sendable () -> Bool
+    /// Messages two agent surfaces may exchange before the human steps in;
+    /// `nil` means unlimited. See `AgentMessageStore+PairLimit.swift`.
+    let pairMessageLimit: Int?
+    // ponytail: pair counters are in memory, so a restart starts every pair over.
+    var pairSent: [String: Int] = [:]
+    var pairExtra: [String: Int] = [:]
 
     // Lock justification: socket handlers call in synchronously from worker
     // threads and need the stored message back in the same call; every
@@ -135,12 +141,14 @@ public final class AgentMessageStore: @unchecked Sendable {
         now: @escaping @Sendable () -> Date = { Date() },
         makeId: @escaping @Sendable () -> String = { UUID().uuidString.lowercased() },
         isEnabled: @escaping @Sendable () -> Bool = { true },
+        pairMessageLimit: Int? = nil,
         onChange: (@Sendable (AgentMessageStoreChange) -> Void)? = nil
     ) {
         self.fileURL = fileURL
         self.now = now
         self.makeId = makeId
         self.isEnabled = isEnabled
+        self.pairMessageLimit = pairMessageLimit
         self.onChange = onChange
         if let fileURL {
             load(from: fileURL)
@@ -166,6 +174,9 @@ public final class AgentMessageStore: @unchecked Sendable {
             ) {
                 throw AgentMessageBlockedError(block: block)
             }
+            if let block = pairLimitBlockLocked(draft) {
+                throw AgentMessageBlockedError(block: block)
+            }
             let id = makeId()
             let parent = draft.inReplyTo.flatMap { messagesById[$0] }
             let message = AgentMessage(
@@ -187,6 +198,7 @@ public final class AgentMessageStore: @unchecked Sendable {
             }
             messagesById[id] = message
             order.append(id)
+            countPairLocked(message)
             recordsSinceCompaction += 1
             if let fileURL,
                order.count > Self.compactionThreshold,
@@ -205,6 +217,9 @@ public final class AgentMessageStore: @unchecked Sendable {
     @discardableResult
     public func claimQueued(recipientSurfaceId: String, via: String) -> [AgentMessage] {
         beforeDeliveryLockForTesting?()
+        if via.hasSuffix(".prompt-submit") {
+            lock.withLock { resetPairsLocked(surfaceId: recipientSurfaceId) }
+        }
         return advance(
             where: {
                 $0.recipientSurfaceId == recipientSurfaceId
