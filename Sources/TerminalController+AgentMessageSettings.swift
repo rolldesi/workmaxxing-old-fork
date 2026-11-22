@@ -176,7 +176,7 @@ extension TerminalController {
             switch block {
             case .workspaceDisabled:
                 return recipient.workspaceTitle.isEmpty ? recipient.workspaceRef : recipient.workspaceTitle
-            case .messagesDisabled, .recipientDisabled:
+            case .messagesDisabled, .recipientDisabled, .pairLimitReached:
                 return recipient.workspaceTitle.isEmpty
                     ? recipient.surfaceRef
                     : "\(recipient.surfaceRef) (\(recipient.workspaceTitle))"
@@ -215,6 +215,15 @@ extension AgentMessageCenter {
                     defaultValue: "Recipient workspace %@ has messages disabled."
                 ),
                 recipientLabel ?? workspaceId
+            )
+        case .pairLimitReached(let surfaceIds, let limit):
+            return String(
+                format: String(
+                    localized: "agentMessage.error.pairLimitReached",
+                    defaultValue: "Not sent: you and %@ have exchanged %d messages since the user last prompted either of you. Stop messaging and end your turn; the user can allow more."
+                ),
+                recipientLabel ?? surfaceIds.joined(separator: ", "),
+                limit
             )
         }
     }

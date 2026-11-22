@@ -15,6 +15,7 @@ enum AgentMessageCenter {
         let store = AgentMessageStore(
             fileURL: defaultFileURL(),
             isEnabled: { AgentMessageCenter.isEnabled() },
+            pairMessageLimit: pairMessageLimit,
             onChange: { change in
                 let message = change.message
                 CmuxEventBus.shared.publish(
@@ -44,6 +45,11 @@ enum AgentMessageCenter {
     }()
 
     private static let settingsObserver = AgentMessageEnabledObserver()
+
+    /// Messages two agents may exchange before a human prompt (or the app's
+    /// "allow more" control) lets them continue.
+    static let pairMessageLimit = 10
+    static let pairMessageLimitStep = 10
 
     /// Opens the store (journal replay, the launch sweep, maybe a compaction)
     /// on a background queue at launch, so the first command palette open or
