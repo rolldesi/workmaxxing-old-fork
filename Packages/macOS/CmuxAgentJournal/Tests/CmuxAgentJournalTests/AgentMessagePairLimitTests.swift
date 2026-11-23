@@ -60,6 +60,20 @@ struct AgentMessagePairLimitTests {
         }
     }
 
+    @Test("Raising from one box raises every pair it is in, and no others")
+    func raiseInvolvingSurface() throws {
+        let store = AgentMessageStore(fileURL: nil, pairMessageLimit: 1)
+        _ = try send(store, from: "a", to: "b")
+        _ = try send(store, from: "c", to: "a")
+        _ = try send(store, from: "c", to: "d")
+        #expect(store.raisePairLimits(involving: "a", by: 1) == 2)
+        _ = try send(store, from: "b", to: "a")
+        _ = try send(store, from: "a", to: "c")
+        #expect(throws: AgentMessageBlockedError(block: .pairLimitReached(surfaceIds: ["c", "d"], limit: 1))) {
+            try send(store, from: "d", to: "c")
+        }
+    }
+
     @Test("A human prompt in either agent starts the pair's count over")
     func humanPromptResets() throws {
         let store = AgentMessageStore(fileURL: nil, pairMessageLimit: 3)

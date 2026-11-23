@@ -16,6 +16,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     case copyWorkingDirectory = "cmux.copyWorkingDirectory"
     case copyProjectRoot = "cmux.copyProjectRoot"
     case copyScreen = "cmux.copyScreen"
+    case allowMoreAgentMessages = "cmux.allowMoreAgentMessages"
 
     init?(configID: String) {
         switch configID {
@@ -50,6 +51,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             self = .copyProjectRoot
         case "cmux.copyScreen", "copyScreen":
             self = .copyScreen
+        case "cmux.allowMoreAgentMessages", "allowMoreAgentMessages":
+            self = .allowMoreAgentMessages
         default:
             return nil
         }
@@ -92,6 +95,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return (String(localized: "command.copyProjectRoot.title", defaultValue: "Copy Project Root"), ["copy", "clipboard", "project", "git", "root", "repository", "path"])
         case .copyScreen:
             return (String(localized: "command.copyScreen.title", defaultValue: "Copy Visible Screen"), ["copy", "clipboard", "screen", "output", "terminal", "visible"])
+        case .allowMoreAgentMessages:
+            return (String(localized: "command.allowMoreAgentMessages.title", defaultValue: "Allow 10 More Agent Messages"), ["agent", "message", "messages", "limit", "allow", "more", "pipe"])
         }
     }
 
@@ -125,13 +130,15 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return "arrow.triangle.branch"
         case .copyScreen:
             return "text.viewfinder"
+        case .allowMoreAgentMessages:
+            return "plus.bubble"
         }
     }
 
     var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action? {
         switch self {
         case .newWorkspace, .newAgentChat, .cloudVM, .newCloudWorkspace, .newCloudMachine, .mobileConnect, .newSimulator,
-             .copyWorkingDirectory, .copyProjectRoot, .copyScreen:
+             .copyWorkingDirectory, .copyProjectRoot, .copyScreen, .allowMoreAgentMessages:
             return nil
         case .newTerminal:
             return .newTerminal
@@ -161,7 +168,7 @@ extension CmuxSurfaceTabBarBuiltInAction {
         case .splitRight: return .splitRight
         case .splitDown: return .splitDown
         case .newAgentChat, .cloudVM, .mobileConnect, .newSimulator,
-             .copyWorkingDirectory, .copyProjectRoot, .copyScreen: return nil
+             .copyWorkingDirectory, .copyProjectRoot, .copyScreen, .allowMoreAgentMessages: return nil
         }
     }
 

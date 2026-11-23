@@ -18453,6 +18453,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 onExecuted?()
                 return true
+            case .allowMoreAgentMessages:
+                guard let panelId = context.tabManager.selectedWorkspace?.focusedPanelId else { return false }
+                let raised = AgentMessageCenter.store.raisePairLimits(
+                    involving: panelId.uuidString,
+                    by: AgentMessageCenter.pairMessageLimitStep
+                )
+                if raised == 0 { NSSound.beep() }
+                onExecuted?()
+                return true
             }
         case .command, .text, .agent, .workspaceCommand, .workspace, .setting:
             guard let cmuxConfigStore = context.cmuxConfigStore else {

@@ -15462,6 +15462,18 @@ extension Workspace: BonsplitDelegate {
                             .flatMap { panelIdFromSurfaceId($0.id) }
                     )
                 }
+            case .allowMoreAgentMessages:
+                // In-process only: agents can reach the socket, so a raise
+                // they could call would let them lift their own cap.
+                let raised = bonsplitController.selectedTab(inPane: pane)
+                    .flatMap { panelIdFromSurfaceId($0.id) }
+                    .map {
+                        AgentMessageCenter.store.raisePairLimits(
+                            involving: $0.uuidString,
+                            by: AgentMessageCenter.pairMessageLimitStep
+                        )
+                    } ?? 0
+                if raised == 0 { NSSound.beep() }
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }

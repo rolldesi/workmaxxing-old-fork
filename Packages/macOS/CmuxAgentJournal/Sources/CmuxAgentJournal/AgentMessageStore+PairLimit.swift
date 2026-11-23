@@ -17,6 +17,21 @@ extension AgentMessageStore {
         lock.withLock { pairExtra[key, default: 0] += by }
     }
 
+    /// Raises every pair `surfaceId` has messaged in, for the app's
+    /// per-box "allow more" button. Returns how many pairs it raised.
+    @discardableResult
+    public func raisePairLimits(involving surfaceId: String, by: Int) -> Int {
+        lock.withLock {
+            let keys = pairKeysLocked(involving: surfaceId)
+            for key in keys { pairExtra[key, default: 0] += by }
+            return keys.count
+        }
+    }
+
+    private func pairKeysLocked(involving surfaceId: String) -> [String] {
+        pairSent.keys.filter { $0.split(separator: "|").contains { $0 == surfaceId } }
+    }
+
     static func pairKey(_ a: String, _ b: String) -> String {
         [a, b].sorted().joined(separator: "|")
     }
@@ -43,8 +58,7 @@ extension AgentMessageStore {
 
     /// Must hold `lock`.
     func resetPairsLocked(surfaceId: String) {
-        let touched = pairSent.keys.filter { $0.split(separator: "|").contains { $0 == surfaceId } }
-        for key in touched {
+        for key in pairKeysLocked(involving: surfaceId) {
             pairSent[key] = nil
             pairExtra[key] = nil
         }
