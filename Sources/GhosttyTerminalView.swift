@@ -8625,8 +8625,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let shouldForwardTerminalActivation = terminalPointerShouldForwardActivation()
         // Treat pointer-down as explicit focus intent before forwarding any terminal activation.
         focusFromPointerDown()
-        if event.clickCount == 3, let panelId = terminalSurface?.id {
-            Workspace.boxTripleClicked(panelId: panelId)
+        if let panelId = terminalSurface?.id {
+            Workspace.boxClicked(panelId: panelId, clickCount: event.clickCount)
         }
         guard shouldForwardTerminalActivation else { return }
         guard let surface = surface else { return }

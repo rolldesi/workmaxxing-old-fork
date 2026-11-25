@@ -4913,8 +4913,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// The box a tab double-click enlarged, until focus leaves it. See BoxChrome.swift.
     var enlargedBox: EnlargedBox?
     var boxEnlargeAnimation: Timer?
+    /// Divider positions of the normal layout while a box is enlarged or springing back.
+    var boxOriginalPositions: [UUID: Double] = [:]
     /// Red/green traffic lights the user already clicked, by box. See BoxChrome.swift.
     var trafficLightSeen: [UUID: AgentHibernationLifecycleState] = [:]
+    /// Boxes whose agent has worked since launch; only those can turn green.
+    var agentWorkedPanels: Set<UUID> = []
 
     /// Tab IDs that are currently showing (or about to show) a close confirmation prompt.
     /// Prevents repeated close gestures (e.g., middle-click spam) from stacking dialogs.

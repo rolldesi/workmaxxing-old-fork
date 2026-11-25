@@ -40,11 +40,10 @@ enum BoxColorStore {
     }
 }
 
-/// The box enlarged by a tab double-click and the divider positions it replaced.
+/// The box a triple-click enlarged.
 struct EnlargedBox {
     let paneId: PaneID
     let panelId: UUID
-    let savedPositions: [UUID: Double]
 }
 
 extension Workspace {
@@ -55,8 +54,13 @@ extension Workspace {
         for case let panel as TerminalPanel in panels.values {
             let state = agentHibernationLifecycleState(panelId: panel.id, fallback: nil)
             // Red and green stay until the user clicks the box; blue stays while it works.
-            if state != .needsInput && state != .idle { trafficLightSeen[panel.id] = nil }
-            let light = trafficLightSeen[panel.id] == state ? nil : BoxChrome.trafficLightColor(state)
+            if state == .running || state == .backgroundWorkPending {
+                trafficLightSeen[panel.id] = nil
+                agentWorkedPanels.insert(panel.id)
+            }
+            // A fresh agent that has not worked yet is idle, not complete.
+            let hidden = trafficLightSeen[panel.id] == state || (state == .idle && !agentWorkedPanels.contains(panel.id))
+            let light = hidden ? nil : BoxChrome.trafficLightColor(state)
             panel.hostedView.setBoxChrome(BoxChrome(
                 trafficLight: light,
                 outline: BoxColorStore.color(.outline, panelId: panel.id),
@@ -79,13 +83,14 @@ extension Workspace {
     /// Share of the workspace's width and height the enlarged box takes.
     private static let enlargedShare = 0.7
 
-    /// A triple-click inside a terminal box (see GhosttyNSView.mouseDown).
-    static func boxTripleClicked(panelId: UUID) {
+    /// Every click inside a terminal box (see GhosttyNSView.mouseDown): clears
+    /// its red or green light, and a triple-click enlarges it.
+    static func boxClicked(panelId: UUID, clickCount: Int) {
+        guard let workspace = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId)?.workspace else { return }
+        workspace.acknowledgeTrafficLight(panelId: panelId)
+        guard clickCount == 3 else { return }
         // After the click's own focus change settles.
-        DispatchQueue.main.async {
-            _ = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId)?
-                .workspace.toggleBoxEnlarge(panelId: panelId)
-        }
+        DispatchQueue.main.async { _ = workspace.toggleBoxEnlarge(panelId: panelId) }
     }
 
     /// Grows the box to ~70% of the workspace in both directions, shrinking
@@ -103,27 +108,27 @@ extension Workspace {
             return true
         }
         let depthByOrientation = Dictionary(grouping: path, by: { $0.split.orientation }).mapValues(\.count)
-        // Undo the previous box's enlarge in the same motion.
-        var targets = previous?.savedPositions ?? [:]
-        var saved: [UUID: Double] = [:]
+        // Start from the normal layout: any other enlarged or still-restoring
+        // splits go back to their originals in the same motion.
+        var targets = boxOriginalPositions
         for (split, targetIsFirst) in path {
             guard let splitId = UUID(uuidString: split.id) else { continue }
+            if boxOriginalPositions[splitId] == nil { boxOriginalPositions[splitId] = split.dividerPosition }
             // Each split on the way shares the growth, so nested splits of one
             // orientation multiply out to the target share.
             let share = pow(Self.enlargedShare, 1 / Double(depthByOrientation[split.orientation] ?? 1))
-            saved[splitId] = previous?.savedPositions[splitId] ?? split.dividerPosition
             targets[splitId] = targetIsFirst ? share : 1 - share
         }
-        enlargedBox = EnlargedBox(paneId: paneId, panelId: panelId, savedPositions: saved)
+        enlargedBox = EnlargedBox(paneId: paneId, panelId: panelId)
         animateDividers(to: targets)
         return true
     }
 
-    /// Puts the dividers back. Splits closed meanwhile are skipped.
+    /// Springs the dividers back to the normal layout. Splits closed meanwhile are skipped.
     func restoreEnlargedBox() {
-        guard let enlarged = enlargedBox else { return }
+        guard enlargedBox != nil else { return }
         enlargedBox = nil
-        animateDividers(to: enlarged.savedPositions)
+        animateDividers(to: boxOriginalPositions)
     }
 
     /// Moves dividers to their targets along a slightly bouncy spring.
@@ -150,6 +155,8 @@ extension Workspace {
                 guard t >= 1 else { return }
                 timer.invalidate()
                 self.boxEnlargeAnimation = nil
+                // The normal layout is reached; forget it until the next enlarge.
+                if self.enlargedBox == nil { self.boxOriginalPositions = [:] }
                 self.didProgrammaticallyChangeSplitGeometry()
             }
         }
