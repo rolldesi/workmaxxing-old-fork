@@ -31,6 +31,8 @@ extension TerminalController {
         case .coderouterGuide:
             // Phones without a native renderer show the fallback card.
             return MobileSurfaceKind(rawValue: "coderouterGuide")
+        case .appWidget:
+            return MobileSurfaceKind(rawValue: "appWidget")
         case .notifications:
             // Notifications use the open-vocabulary fallback until the phone
             // provides a native renderer for this panel kind.

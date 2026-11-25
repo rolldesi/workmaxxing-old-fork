@@ -939,7 +939,7 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
     var defaultButtonIcon: CmuxButtonIcon {
         switch self {
         case .builtIn(let action):
-            return .symbol(action.defaultIcon)
+            return action.defaultButtonIcon
         case .command:
             return .symbol("terminal")
         case .text:
@@ -1043,12 +1043,16 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
     static let splitDown = actionReference(CmuxSurfaceTabBarBuiltInAction.splitDown.configID)
 
     static let mobileConnect = actionReference(CmuxSurfaceTabBarBuiltInAction.mobileConnect.configID)
+    static let openApp = actionReference(CmuxSurfaceTabBarBuiltInAction.openApp.configID)
+    static let allowMoreAgentMessages = actionReference(CmuxSurfaceTabBarBuiltInAction.allowMoreAgentMessages.configID)
 
     static let defaults: [CmuxSurfaceTabBarButton] = [
         .newTerminal,
         .newBrowser,
         .splitRight,
-        .splitDown
+        .splitDown,
+        .openApp,
+        .allowMoreAgentMessages
     ]
 
     static func builtIn(
@@ -1536,7 +1540,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
             keywords: metadata.keywords,
             palette: true,
             shortcut: nil,
-            icon: .symbol(builtIn.defaultIcon),
+            icon: builtIn.defaultButtonIcon,
             tooltip: nil,
             action: .builtIn(builtIn),
             confirm: nil,
@@ -2303,7 +2307,9 @@ final class CmuxConfigStore: ObservableObject {
             .builtIn(.newTerminal),
             .builtIn(.newBrowser),
             .builtIn(.splitRight),
-            .builtIn(.splitDown)
+            .builtIn(.splitDown),
+            .builtIn(.openApp),
+            .builtIn(.allowMoreAgentMessages)
         ]
         let resolvedButtons = resolvedSurfaceTabBarButtons(
             configuredButtons,

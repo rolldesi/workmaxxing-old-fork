@@ -39,6 +39,8 @@ extension ClosedItemHistoryStore {
             return String(localized: "workspaceTodoPane.title", defaultValue: "Todos")
         case .coderouterGuide:
             return String(localized: "coderouter.guide.title", defaultValue: "coderouter")
+        case .appWidget:
+            return String(localized: "appWidget.kind", defaultValue: "App")
         case .notifications:
             return String(localized: "notifications.title", defaultValue: "Notifications")
         case .cloudVMLoading:

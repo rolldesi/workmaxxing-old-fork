@@ -334,6 +334,7 @@ struct WorkspaceContentView: View {
                             // indicator and where keyboard input/flash-focus actually lands.
                             guard isWorkspaceInputActive else { return }
                             guard workspace.panels[panel.id] != nil else { return }
+                            workspace.acknowledgeTrafficLight(panelId: panel.id)
                             workspace.focusPanel(
                                 panel.id,
                                 trigger: .terminalFirstResponder,

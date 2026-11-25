@@ -26,6 +26,8 @@ extension ContentView {
             return String(localized: "commandPalette.kind.workspaceTodo", defaultValue: "Todos")
         case .coderouterGuide:
             return String(localized: "coderouter.guide.title", defaultValue: "coderouter")
+        case .appWidget:
+            return String(localized: "appWidget.kind", defaultValue: "App")
         case .notifications:
             return String(localized: "notifications.title", defaultValue: "Notifications")
         case .cloudVMLoading:
@@ -65,6 +67,8 @@ extension ContentView {
             return ["todo", "todos", "checklist", "task", "status"]
         case .coderouterGuide:
             return ["coderouter", "guide", "help", "cloud", "accounts"]
+        case .appWidget:
+            return ["app", "spotify", "sticky", "note", "prompt", "queue"]
         case .notifications:
             return ["notifications", "alerts", "feed"]
         case .cloudVMLoading:

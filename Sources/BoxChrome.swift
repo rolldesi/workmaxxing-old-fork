@@ -9,10 +9,10 @@ struct BoxChrome: Equatable {
     var outline: NSColor?
     var tint: NSColor?
 
-    /// Yellow while the agent works, red when it needs the user, green when done.
+    /// Blue while the agent works, red when it stopped for the user, green when done.
     static func trafficLightColor(_ state: AgentHibernationLifecycleState) -> NSColor? {
         switch state {
-        case .running, .backgroundWorkPending: return .systemYellow
+        case .running, .backgroundWorkPending: return .systemBlue
         case .needsInput: return .systemRed
         case .idle: return .systemGreen
         case .unknown: return nil
@@ -54,13 +54,24 @@ extension Workspace {
         let capped = AgentMessageCenter.store.cappedSurfaceIds()
         for case let panel as TerminalPanel in panels.values {
             let state = agentHibernationLifecycleState(panelId: panel.id, fallback: nil)
+            // Red and green stay until the user clicks the box; blue stays while it works.
+            if state != .needsInput && state != .idle { trafficLightSeen[panel.id] = nil }
+            let light = trafficLightSeen[panel.id] == state ? nil : BoxChrome.trafficLightColor(state)
             panel.hostedView.setBoxChrome(BoxChrome(
-                trafficLight: BoxChrome.trafficLightColor(state),
+                trafficLight: light,
                 outline: BoxColorStore.color(.outline, panelId: panel.id),
                 tint: BoxColorStore.color(.tint, panelId: panel.id)
             ))
             panel.hostedView.agentMessagesCapped = capped.contains(panel.id.uuidString)
         }
+    }
+
+    /// Clears a box's red or green light once the user clicks it.
+    func acknowledgeTrafficLight(panelId: UUID) {
+        let state = agentHibernationLifecycleState(panelId: panelId, fallback: nil)
+        guard state == .needsInput || state == .idle, trafficLightSeen[panelId] != state else { return }
+        trafficLightSeen[panelId] = state
+        refreshBoxChrome()
     }
 
     // MARK: Enlarge on double-click

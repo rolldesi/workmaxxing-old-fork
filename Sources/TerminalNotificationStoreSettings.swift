@@ -18,12 +18,14 @@ enum NotificationBadgeSettings {
 
 enum NotificationPaneRingSettings {
     static let enabledKey = "notificationPaneRingEnabled"
-    static let defaultEnabled = true
+    // Fork: off by default; the box traffic light (BoxChrome.swift) replaces it.
+    static let defaultEnabled = false
 }
 
 enum NotificationPaneFlashSettings {
     static let enabledKey = "notificationPaneFlashEnabled"
-    static let defaultEnabled = true
+    // Fork: off by default; the box traffic light (BoxChrome.swift) replaces it.
+    static let defaultEnabled = false
     static let doubleBlinkKey = "notificationPaneFlashDoubleBlink"
     static let defaultDoubleBlink = true
     static let onTypingKey = "notificationPaneFlashOnTyping"

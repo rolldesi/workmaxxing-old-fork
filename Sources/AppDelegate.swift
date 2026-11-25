@@ -18453,6 +18453,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 onExecuted?()
                 return true
+            case .openApp:
+                guard let workspace = context.tabManager.selectedWorkspace,
+                      let pane = workspace.bonsplitController.focusedPaneId else { return false }
+                workspace.showAppsMenu(inPane: pane)
+                onExecuted?()
+                return true
             case .allowMoreAgentMessages:
                 guard let panelId = context.tabManager.selectedWorkspace?.focusedPanelId else { return false }
                 let raised = AgentMessageCenter.store.raisePairLimits(

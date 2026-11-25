@@ -117,6 +117,7 @@ struct WorkspaceCanvasHostView: View {
         case .extensionBrowser: return "puzzlepiece.extension"
         case .workspaceTodo: return "checklist"
         case .coderouterGuide: return "questionmark.circle"
+        case .appWidget: return "square.grid.2x2"
         case .notifications: return "bell"
         case .cloudVMLoading: return "cloud.fill"
         case .mobilePairing: return "iphone"

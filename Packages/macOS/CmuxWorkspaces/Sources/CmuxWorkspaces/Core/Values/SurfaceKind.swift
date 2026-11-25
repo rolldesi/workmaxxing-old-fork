@@ -39,6 +39,7 @@ public struct SurfaceKind: RawRepresentable, Hashable, Sendable {
     public static let todo = SurfaceKind(rawValue: "todo")
     /// A CodeRouter guide pane.
     public static let coderouterGuide = SurfaceKind(rawValue: "coderouterGuide")
+    public static let appWidget = SurfaceKind(rawValue: "appWidget")
     /// A notifications pane.
     public static let notifications = SurfaceKind(rawValue: "notifications")
     /// A transient Cloud VM loading pane.

@@ -613,6 +613,7 @@ extension Workspace {
         var coderouterGuideSnapshot: SessionCoderouterGuidePanelSnapshot? = nil
         var notificationsPanelSnapshot: SessionNotificationsPanelSnapshot? = nil
         var chiefSnapshot: SessionChiefPanelSnapshot? = nil
+        var appWidgetSnapshot: SessionAppWidgetPanelSnapshot? = nil
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -829,6 +830,11 @@ extension Workspace {
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
             coderouterGuideSnapshot = SessionCoderouterGuidePanelSnapshot()
+        case .appWidget:
+            guard let appWidgetPanel = panel as? AppWidgetPanel else { return nil }
+            terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
+            appWidgetSnapshot = appWidgetPanel.snapshot
         case .notifications:
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
@@ -883,7 +889,8 @@ extension Workspace {
             workspaceTodo: workspaceTodoSnapshot,
             coderouterGuide: coderouterGuideSnapshot,
             notificationsPanel: notificationsPanelSnapshot,
-            chief: chiefSnapshot
+            chief: chiefSnapshot,
+            appWidget: appWidgetSnapshot
         )
     }
     private func closedPanelHistoryEntry(panelId: UUID, tabId: TabID, pane: PaneID) -> ClosedPanelHistoryEntry? {
@@ -2415,6 +2422,13 @@ extension Workspace {
             guard let todoPanel = newWorkspaceTodoSurface(inPane: paneId, focus: false) else { return nil }
             applySessionPanelMetadata(snapshot, toPanelId: todoPanel.id)
             return todoPanel.id
+        case .appWidget:
+            guard let appWidgetSnapshot = snapshot.appWidget,
+                  let kind = AppWidgetPanel.Kind(rawValue: appWidgetSnapshot.kind),
+                  let widget = newAppWidgetSurface(inPane: paneId, kind: kind, snapshot: appWidgetSnapshot, focus: false)
+            else { return nil }
+            applySessionPanelMetadata(snapshot, toPanelId: widget.id)
+            return widget.id
         case .coderouterGuide:
             guard snapshot.coderouterGuide != nil,
                   let guidePanel = newCoderouterGuideSurface(inPane: paneId, focus: false) else { return nil }
@@ -4899,6 +4913,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     /// The box a tab double-click enlarged, until focus leaves it. See BoxChrome.swift.
     var enlargedBox: EnlargedBox?
+    /// Red/green traffic lights the user already clicked, by box. See BoxChrome.swift.
+    var trafficLightSeen: [UUID: AgentHibernationLifecycleState] = [:]
 
     /// Tab IDs that are currently showing (or about to show) a close confirmation prompt.
     /// Prevents repeated close gestures (e.g., middle-click spam) from stacking dialogs.
@@ -14128,6 +14144,7 @@ extension Workspace: BonsplitDelegate {
     ) {
         guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
         restoreEnlargedBoxIfFocusLeft(toPane: pane)
+        if let panelId = panelIdFromSurfaceId(tabId) { acknowledgeTrafficLight(panelId: panelId) }
         tmuxOverlaySelectionRevision &+= 1
         let effectiveFocusTransactionId = focusTransactionId ?? activeFocusTransactionId
         pendingTabSelection = PendingTabSelectionRequest(
@@ -15469,6 +15486,8 @@ extension Workspace: BonsplitDelegate {
                             .flatMap { panelIdFromSurfaceId($0.id) }
                     )
                 }
+            case .openApp:
+                showAppsMenu(inPane: pane)
             case .allowMoreAgentMessages:
                 // In-process only: agents can reach the socket, so a raise
                 // they could call would let them lift their own cap.

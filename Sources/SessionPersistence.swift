@@ -1790,6 +1790,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var coderouterGuide: SessionCoderouterGuidePanelSnapshot? = nil
     var notificationsPanel: SessionNotificationsPanelSnapshot? = nil
     var chief: SessionChiefPanelSnapshot? = nil
+    var appWidget: SessionAppWidgetPanelSnapshot? = nil
 }
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
 
