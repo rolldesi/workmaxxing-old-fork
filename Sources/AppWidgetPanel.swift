@@ -235,13 +235,6 @@ extension Workspace {
             _ = self?.newFilePreviewSurface(inPane: paneId, filePath: url.path, focus: true)
         })
 
-        menu.addItem(.separator())
-        for source in BrowserWithLogins.allCases {
-            menu.addItem(BoxMenuItem(title: source.menuTitle, symbol: source.symbol) { [weak self] in
-                self?.openBrowserWithLogins(source, inPane: paneId)
-            })
-        }
-
         let selectedPanelId = bonsplitController.selectedTab(inPane: paneId).flatMap { panelIdFromSurfaceId($0.id) }
         if let panelId = selectedPanelId, panels[panelId] is TerminalPanel {
             menu.addItem(.separator())
@@ -414,13 +407,14 @@ private struct PromptQueueView: View {
 
 // MARK: - Spotify
 
-/// Reads and drives the Spotify app through AppleScript. Shared by every
-/// Spotify tab; polls only while one is on screen.
+/// Now playing and playback control through the Spotify Web API, so cmux never
+/// needs macOS permission to control the Spotify app. Shared by every Spotify
+/// tab; polls only while one is on screen.
 @MainActor
 final class SpotifyModel: ObservableObject {
     static let shared = SpotifyModel()
 
-    enum Status { case notRunning, stopped, playing, paused }
+    enum Status { case signedOut, notRunning, stopped, playing, paused }
 
     @Published private(set) var status: Status = .notRunning
     @Published private(set) var track = ""
@@ -438,16 +432,16 @@ final class SpotifyModel: ObservableObject {
     private var refreshInFlight = false
     private var timer: Timer?
     private var observer: NSObjectProtocol?
+    private var api: SpotifyWebAPI { SpotifyWebAPI.shared }
 
     func viewerAppeared() {
         viewers += 1
         guard viewers == 1 else { return }
         refresh()
-        // ponytail: 2s poll alongside Spotify's change notification; drop the poll
-        // if the notification proves reliable.
-        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
             MainActor.assumeIsolated { SpotifyModel.shared.refresh() }
         }
+        // Spotify announces track and play/pause changes; refresh at once on them.
         observer = DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("com.spotify.client.PlaybackStateChanged"),
             object: nil,
@@ -466,150 +460,103 @@ final class SpotifyModel: ObservableObject {
         observer = nil
     }
 
-    /// macOS refused to let cmux send Apple events to Spotify (error -1743).
-    var needsPermission: Bool {
-        guard let lastError else { return false }
-        return lastError.contains("-1743") || lastError.localizedCaseInsensitiveContains("not authori")
-    }
-
-    /// Forgets this app's Automation decision so the next call asks again.
-    /// Rebuilt dev copies get a new signature, which can leave a stale denial.
-    func askForPermissionAgain() {
-        guard let bundleId = Bundle.main.bundleIdentifier else { return }
-        DispatchQueue.global(qos: .userInitiated).async {
-            let reset = Process()
-            reset.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-            reset.arguments = ["reset", "AppleEvents", bundleId]
-            try? reset.run()
-            reset.waitUntilExit()
-            DispatchQueue.main.async { SpotifyModel.shared.refresh() }
-        }
-    }
-
-    func openAutomationSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
     func refresh() {
-        // One osascript at a time; a pending permission prompt blocks it.
+        guard api.isSignedIn else {
+            status = .signedOut
+            return
+        }
         guard !refreshInFlight else { return }
         refreshInFlight = true
-        Self.run("""
-        if application "Spotify" is running then
-            tell application "Spotify"
-                set s to player state as string
-                if s is "stopped" then return "stopped"
-                set t to current track
-                return s & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (artwork url of t) & linefeed & ((duration of t) as string) & linefeed & ((player position) as string) & linefeed & (shuffling as string) & linefeed & (repeating as string) & linefeed & (sound volume as string)
-            end tell
-        else
-            return "notrunning"
-        end if
-        """) { [weak self] output, error in
-            self?.refreshInFlight = false
-            self?.apply(output: output, error: error)
+        Task {
+            await load()
+            refreshInFlight = false
         }
+    }
+
+    private func load() async {
+        guard let state = await api.playbackState() else { return }
+        guard let state else {
+            status = .notRunning
+            return
+        }
+        guard let item = state.item else {
+            status = .stopped
+            return
+        }
+        status = state.isPlaying ? .playing : .paused
+        track = item.name
+        artist = item.artists
+        artworkURL = item.imageURL
+        duration = Double(item.durationMs) / 1000
+        position = Double(state.progressMs) / 1000
+        positionReadAt = Date()
+        shuffling = state.shuffle
+        repeating = state.repeatMode != "off"
+        if let level = state.volume { volume = Double(level) }
+        lastError = nil
     }
 
     func playPause() {
-        status == .notRunning ? startInBackground(then: "play") : command("playpause")
+        perform {
+            if $0.status == .playing {
+                await $0.api.player("PUT", "/pause")
+            } else {
+                await $0.resume(uris: nil)
+            }
+        }
     }
-    func next() { command("next track") }
-    func previous() { command("previous track") }
-    func toggleShuffle() { command("set shuffling to not shuffling") }
-    func toggleRepeat() { command("set repeating to not repeating") }
-    func setVolume(_ level: Double) { command("set sound volume to \(Int(level.rounded()))") }
 
-    /// Plays a track or other Spotify URI now, starting Spotify hidden if needed.
+    func next() { perform { await $0.api.player("POST", "/next") } }
+    func previous() { perform { await $0.api.player("POST", "/previous") } }
+    func toggleShuffle() {
+        perform { await $0.api.player("PUT", "/shuffle", query: ["state": $0.shuffling ? "false" : "true"]) }
+    }
+    func toggleRepeat() {
+        perform { await $0.api.player("PUT", "/repeat", query: ["state": $0.repeating ? "off" : "context"]) }
+    }
+    func setVolume(_ level: Double) {
+        perform { await $0.api.player("PUT", "/volume", query: ["volume_percent": String(Int(level.rounded()))]) }
+    }
+
+    /// Plays a track (or other Spotify URI) now.
     func play(uri: String) {
-        // URIs are spotify:kind:id; anything else never reaches the script.
-        guard uri.allSatisfy({ $0.isLetter || $0.isNumber || $0 == ":" }) else { return }
-        let verb = "play track \"\(uri)\""
-        status == .notRunning ? startInBackground(then: verb) : command(verb)
+        perform { await $0.resume(uris: [uri]) }
     }
 
-    /// Starts Spotify without showing its window, then runs `verb` once it is up.
-    func startInBackground(then verb: String? = nil) {
-        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.spotify.client") else {
-            lastError = String(localized: "appWidget.spotify.notInstalled", defaultValue: "Spotify isn't installed.")
+    /// Starts or resumes playback, on the active device or else this Mac,
+    /// starting Spotify hidden when nothing is available to play on.
+    private func resume(uris: [String]?) async {
+        let body: [String: Any]? = uris.map { ["uris": $0] }
+        if await api.player("PUT", "/play", body: body) { return }
+        var device = await api.playbackDevice()
+        if device == nil { device = await startSpotifyHidden() }
+        guard let device else {
+            lastError = String(localized: "appWidget.spotify.noDevice", defaultValue: "No Spotify device is available to play on.")
             return
         }
+        _ = await api.player("PUT", "/play", query: ["device_id": device], body: body ?? [:])
+    }
+
+    /// Opens Spotify without showing a window and waits for it to appear as a
+    /// Connect device. Needs no permission: it only launches the app.
+    private func startSpotifyHidden() async -> String? {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.spotify.client") else { return nil }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false
         configuration.hides = true
-        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, _ in
-            Task { @MainActor in
-                // ponytail: fixed wait for Spotify to accept commands; poll its state if 3s proves flaky.
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                if let verb { SpotifyModel.shared.command(verb) } else { SpotifyModel.shared.refresh() }
-            }
+        _ = try? await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+        for _ in 0..<12 {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            if let device = await api.playbackDevice() { return device }
         }
+        return nil
     }
 
-    func openSpotify() {
-        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.spotify.client") {
-            NSWorkspace.shared.openApplication(at: url, configuration: .init())
-        }
-    }
-
-    fileprivate func command(_ verb: String) {
-        Self.run("if application \"Spotify\" is running then tell application \"Spotify\" to \(verb)") { [weak self] _, error in
-            if let error { self?.lastError = error }
-            self?.refresh()
-        }
-    }
-
-    private func apply(output: String, error: String?) {
-        lastError = error
-        let lines = output.components(separatedBy: "\n")
-        switch lines.first {
-        case "notrunning": status = .notRunning
-        case "stopped": status = .stopped
-        case "playing", "paused":
-            guard lines.count >= 6 else { return }
-            status = lines[0] == "playing" ? .playing : .paused
-            track = lines[1]
-            artist = lines[2]
-            artworkURL = URL(string: lines[3])
-            duration = (Double(lines[4].replacingOccurrences(of: ",", with: ".")) ?? 0) / 1000
-            position = Double(lines[5].replacingOccurrences(of: ",", with: ".")) ?? 0
-            positionReadAt = Date()
-            if lines.count >= 9 {
-                shuffling = lines[6] == "true"
-                repeating = lines[7] == "true"
-                volume = Double(lines[8]) ?? volume
-            }
-        default:
-            break
-        }
-    }
-
-    /// Runs a script with osascript off the main thread. The first run asks the
-    /// user to let cmux control Spotify (macOS Automation permission).
-    private static func run(_ script: String, completion: @escaping @MainActor (String, String?) -> Void) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-e", script]
-            let out = Pipe(), err = Pipe()
-            process.standardOutput = out
-            process.standardError = err
-            var output = "", error: String?
-            do {
-                try process.run()
-                process.waitUntilExit()
-                output = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let errText = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                error = errText.isEmpty ? nil : errText
-            } catch let launchError {
-                error = launchError.localizedDescription
-            }
-            let result = (output, error)
-            DispatchQueue.main.async { completion(result.0, result.1) }
+    private func perform(_ work: @escaping @MainActor (SpotifyModel) async -> Void) {
+        Task {
+            await work(self)
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            refresh()
         }
     }
 }
@@ -619,22 +566,38 @@ final class SpotifyModel: ObservableObject {
 /// when medium, and a progress bar when large.
 private struct SpotifyWidgetView: View {
     @ObservedObject private var spotify = SpotifyModel.shared
+    /// Search and queue in place of the player when the tab is too small for both.
+    @State private var showsLibrary = false
 
     var body: some View {
         GeometryReader { geometry in
             let size = geometry.size
             Group {
                 switch spotify.status {
+                case _ where showsLibrary && !(size.width >= 340 && size.height >= 380):
+                    VStack(alignment: .leading, spacing: 6) {
+                        Button { showsLibrary = false } label: {
+                            Label(String(localized: "appWidget.spotify.backToPlayer", defaultValue: "Player"), systemImage: "chevron.left")
+                        }
+                        .buttonStyle(.plain)
+                        SpotifyLibraryView()
+                    }
+                case .signedOut:
+                    SpotifyLibraryView()
                 case .notRunning:
                     VStack(spacing: 10) {
                         Image(systemName: "music.note").font(.largeTitle).foregroundStyle(.secondary)
                         Button {
                             spotify.playPause()
                         } label: {
-                            Label(String(localized: "appWidget.spotify.playHidden", defaultValue: "Play (Spotify stays hidden)"), systemImage: "play.fill")
+                            Label(String(localized: "appWidget.spotify.playHidden", defaultValue: "Play on this Mac"), systemImage: "play.fill")
                         }
-                        if let error = spotify.lastError, !spotify.needsPermission { errorText(error) }
-                        if size.width >= 340 && size.height >= 380 { SpotifyLibraryView() }
+                        if let error = spotify.lastError { errorText(error) }
+                        if size.width >= 340 && size.height >= 380 {
+                            SpotifyLibraryView()
+                        } else {
+                            searchButton
+                        }
                     }
                 case .stopped:
                     VStack(spacing: 10) {
@@ -654,9 +617,6 @@ private struct SpotifyWidgetView: View {
             .frame(width: size.width, height: size.height)
         }
         .padding(10)
-        .overlay(alignment: .top) {
-            if spotify.needsPermission { permissionBanner }
-        }
         .background(Color(red: 0.07, green: 0.07, blue: 0.08))
         .foregroundStyle(.white)
         .onAppear { spotify.viewerAppeared() }
@@ -680,9 +640,19 @@ private struct SpotifyWidgetView: View {
             VStack(alignment: .leading, spacing: 6) {
                 titleBlock
                 controls
+                searchButton
             }
             Spacer(minLength: 0)
         }
+    }
+
+    private var searchButton: some View {
+        Button { showsLibrary = true } label: {
+            Label(String(localized: "appWidget.spotify.searchQueue", defaultValue: "Search & Queue"), systemImage: "magnifyingglass")
+                .font(.caption)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white.opacity(0.75))
     }
 
     private func large(_ size: CGSize) -> some View {
@@ -738,22 +708,6 @@ private struct SpotifyWidgetView: View {
             Button { spotify.next() } label: { Image(systemName: "forward.fill") }
         }
         .buttonStyle(.plain)
-    }
-
-    private var permissionBanner: some View {
-        VStack(spacing: 6) {
-            Text(String(localized: "appWidget.spotify.permission", defaultValue: "Allow cmux to control Spotify"))
-                .font(.caption.bold())
-            HStack {
-                Button(String(localized: "appWidget.spotify.askAgain", defaultValue: "Ask Again"), action: spotify.askForPermissionAgain)
-                Button(String(localized: "appWidget.spotify.openSettings", defaultValue: "Open Settings"), action: spotify.openAutomationSettings)
-            }
-            .controlSize(.small)
-        }
-        .padding(8)
-        .frame(maxWidth: .infinity)
-        .background(Color.red.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
-        .padding(6)
     }
 
     private func errorText(_ error: String) -> some View {
@@ -1099,6 +1053,24 @@ enum BrowserWithLogins: CaseIterable {
 }
 
 extension Workspace {
+    /// The tab bar's globe button: choose which browser's logins to open with.
+    func showBrowserMenu(inPane paneId: PaneID) {
+        let menu = NSMenu()
+        for source in BrowserWithLogins.allCases {
+            menu.addItem(BoxMenuItem(title: source.menuTitle, symbol: source.symbol) { [weak self] in
+                self?.openBrowserWithLogins(source, inPane: paneId)
+            })
+        }
+        menu.addItem(.separator())
+        menu.addItem(BoxMenuItem(
+            title: String(localized: "appWidget.browser.plain", defaultValue: "Browser (no logins)"),
+            symbol: "globe"
+        ) { [weak self] in
+            _ = self?.newBrowserSurface(inPane: paneId, focus: true)
+        })
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    }
+
     /// Opens a browser tab on the matching profile. The first time it imports
     /// that browser's cookies before loading; later it refreshes them after.
     func openBrowserWithLogins(_ source: BrowserWithLogins, inPane paneId: PaneID) {

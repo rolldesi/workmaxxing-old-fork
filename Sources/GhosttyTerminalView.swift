@@ -10797,7 +10797,10 @@ final class GhosttySurfaceScrollView: NSView {
     private let boxOutlineLayer = CAShapeLayer()
     private let trafficLightLayer = CAShapeLayer()
     private var boxChrome = BoxChrome()
-    private var agentAllowanceButton: NSButton?
+    private var agentAllowanceButton: AgentAllowanceTabBarButton?
+    private var agentAllowanceRemaining: Int?
+    /// Width of the pane tab bar's action buttons, which the counter sits left of.
+    private var agentAllowanceTrailingInset: CGFloat = 0
     /// Adds 10 agent messages for this box; set by Workspace.refreshBoxChrome().
     var onAgentAllowanceTap: (() -> Void)?
     /// Greys the box, focused or not, while its agent is out of messages to
@@ -11553,6 +11556,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
+        positionAgentAllowanceButton()
         guard activeDropZone != nil || pendingDropZone != nil else { return }
         attachDropZoneOverlayIfNeeded()
         if let zone = activeDropZone ?? pendingDropZone {
@@ -11644,7 +11648,7 @@ final class GhosttySurfaceScrollView: NSView {
             _ = setFrameIfNeeded(boxChromeOverlayView, to: bounds)
             updateBoxChromePaths()
         }
-        layoutAgentAllowanceButton()
+        positionAgentAllowanceButton()
         _ = setFrameIfNeeded(linkHoverIndicatorView, to: contentFrame)
         _ = setFrameIfNeeded(passwordInputIndicatorView, to: contentFrame)
         if let cloudTerminalReconnectOverlayView { _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: contentFrame) }
@@ -12063,45 +12067,77 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.commit()
     }
 
-    /// Shows "N+" in the box's top-right corner: agent messages it has left.
-    /// Nil hides it (no agent conversations yet).
-    func setAgentMessageAllowance(_ remaining: Int?) {
-        guard let remaining else {
-            agentAllowanceButton?.isHidden = true
-            return
+    /// Shows "N+" in this box's tab bar, left of its action buttons: agent
+    /// messages it has left. Nil hides it (no agent conversations yet).
+    func setAgentMessageAllowance(_ remaining: Int?, tabBarButtonsWidth: CGFloat) {
+        agentAllowanceRemaining = remaining
+        agentAllowanceTrailingInset = tabBarButtonsWidth
+        if let remaining {
+            let button = agentAllowanceButton ?? {
+                let button = AgentAllowanceTabBarButton(title: "", target: self, action: #selector(agentAllowanceTapped))
+                button.bezelStyle = .inline
+                button.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+                button.toolTip = String(
+                    localized: "agentMessage.allowance.tooltip",
+                    defaultValue: "Agent messages this box has left before it pauses. Click for 10 more."
+                )
+                agentAllowanceButton = button
+                return button
+            }()
+            let title = "\(remaining)+"
+            if button.title != title { button.title = title }
+            button.contentTintColor = remaining == 0 ? .systemRed : nil
         }
-        let button: NSButton
-        if let existing = agentAllowanceButton {
-            button = existing
-        } else {
-            button = NSButton(title: "", target: self, action: #selector(agentAllowanceTapped))
-            button.bezelStyle = .inline
-            button.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
-            button.toolTip = String(
-                localized: "agentMessage.allowance.tooltip",
-                defaultValue: "Agent messages this box has left before it pauses. Click for 10 more."
-            )
-            agentAllowanceButton = button
-        }
-        let title = "\(remaining)+"
-        if button.title != title { button.title = title }
-        button.contentTintColor = remaining == 0 ? .systemRed : nil
-        button.isHidden = false
-        // Keep it above overlays added after it.
-        if subviews.last !== button { addSubview(button) }
-        layoutAgentAllowanceButton()
+        positionAgentAllowanceButton()
     }
 
-    private func layoutAgentAllowanceButton() {
-        guard let button = agentAllowanceButton, !button.isHidden else { return }
+    /// The tab bar sits just above this view, outside its clipped bounds, so
+    /// the counter lives in the portal container beside it (like the drop-zone
+    /// overlay) and follows this view's frame and visibility.
+    private func positionAgentAllowanceButton() {
+        guard let button = agentAllowanceButton else { return }
+        guard agentAllowanceRemaining != nil, let container = superview, window != nil,
+              !isHiddenOrHasHiddenAncestor else {
+            button.isHidden = true
+            return
+        }
+        if button.superview !== container {
+            button.removeFromSuperview()
+            container.addSubview(button, positioned: .above, relativeTo: self)
+        }
         button.sizeToFit()
         let size = button.frame.size
-        button.frame = CGRect(
-            x: bounds.width - size.width - 14,
-            y: isFlipped ? 8 : bounds.height - size.height - 8,
+        let strip = WindowChromeMetrics.bonsplitTabBarHeight
+        let local = CGRect(
+            x: bounds.width - agentAllowanceTrailingInset - size.width - 2,
+            y: isFlipped ? -strip + (strip - size.height) / 2 : bounds.height + (strip - size.height) / 2,
             width: size.width,
             height: size.height
         )
+        button.frame = container.convert(local, from: self)
+        button.isHidden = false
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        positionAgentAllowanceButton()
+    }
+
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        if newSuperview !== agentAllowanceButton?.superview {
+            agentAllowanceButton?.removeFromSuperview()
+        }
+        super.viewWillMove(toSuperview: newSuperview)
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        positionAgentAllowanceButton()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        positionAgentAllowanceButton()
     }
 
     @objc private func agentAllowanceTapped() {

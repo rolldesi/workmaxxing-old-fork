@@ -1044,11 +1044,12 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
 
     static let mobileConnect = actionReference(CmuxSurfaceTabBarBuiltInAction.mobileConnect.configID)
     static let openApp = actionReference(CmuxSurfaceTabBarBuiltInAction.openApp.configID)
+    static let chooseBrowser = actionReference(CmuxSurfaceTabBarBuiltInAction.chooseBrowser.configID)
     static let allowMoreAgentMessages = actionReference(CmuxSurfaceTabBarBuiltInAction.allowMoreAgentMessages.configID)
 
     static let defaults: [CmuxSurfaceTabBarButton] = [
         .newTerminal,
-        .newBrowser,
+        .chooseBrowser,
         .splitRight,
         .splitDown,
         .openApp
@@ -2304,7 +2305,7 @@ final class CmuxConfigStore: ObservableObject {
             try $0.resolved(actions: resolvedActionLookup, codingPath: [])
         }) ?? [
             .builtIn(.newTerminal),
-            .builtIn(.newBrowser),
+            .builtIn(.chooseBrowser),
             .builtIn(.splitRight),
             .builtIn(.splitDown),
             .builtIn(.openApp)

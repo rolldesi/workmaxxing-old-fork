@@ -18,6 +18,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     case copyScreen = "cmux.copyScreen"
     case allowMoreAgentMessages = "cmux.allowMoreAgentMessages"
     case openApp = "cmux.openApp"
+    case chooseBrowser = "cmux.chooseBrowser"
 
     /// The fork's +10 button reads as text; every other built-in uses its symbol.
     var defaultButtonIcon: CmuxButtonIcon {
@@ -61,6 +62,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             self = .allowMoreAgentMessages
         case "cmux.openApp", "openApp", "cmux.apps", "apps":
             self = .openApp
+        case "cmux.chooseBrowser", "chooseBrowser":
+            self = .chooseBrowser
         default:
             return nil
         }
@@ -105,6 +108,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return (String(localized: "command.copyScreen.title", defaultValue: "Copy Visible Screen"), ["copy", "clipboard", "screen", "output", "terminal", "visible"])
         case .allowMoreAgentMessages:
             return (String(localized: "command.allowMoreAgentMessages.title", defaultValue: "Allow 10 More Agent Messages"), ["agent", "message", "messages", "limit", "allow", "more", "pipe"])
+        case .chooseBrowser:
+            return (String(localized: "command.chooseBrowser.title", defaultValue: "Open Browser (Chrome or Safari)"), ["browser", "web", "chrome", "safari", "logins", "open"])
         case .openApp:
             return (String(localized: "command.openApp.title", defaultValue: "Open App or Style Box"), ["app", "apps", "spotify", "sticky", "note", "prompt", "queue", "markdown", "color", "outline", "enlarge"])
         }
@@ -144,13 +149,15 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return "plus.bubble"
         case .openApp:
             return "square.grid.2x2"
+        case .chooseBrowser:
+            return "globe"
         }
     }
 
     var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action? {
         switch self {
         case .newWorkspace, .newAgentChat, .cloudVM, .newCloudWorkspace, .newCloudMachine, .mobileConnect, .newSimulator,
-             .copyWorkingDirectory, .copyProjectRoot, .copyScreen, .allowMoreAgentMessages, .openApp:
+             .copyWorkingDirectory, .copyProjectRoot, .copyScreen, .allowMoreAgentMessages, .openApp, .chooseBrowser:
             return nil
         case .newTerminal:
             return .newTerminal
@@ -180,7 +187,7 @@ extension CmuxSurfaceTabBarBuiltInAction {
         case .splitRight: return .splitRight
         case .splitDown: return .splitDown
         case .newAgentChat, .cloudVM, .mobileConnect, .newSimulator,
-             .copyWorkingDirectory, .copyProjectRoot, .copyScreen, .allowMoreAgentMessages, .openApp: return nil
+             .copyWorkingDirectory, .copyProjectRoot, .copyScreen, .allowMoreAgentMessages, .openApp, .chooseBrowser: return nil
         }
     }
 

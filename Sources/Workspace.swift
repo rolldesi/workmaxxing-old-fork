@@ -15492,6 +15492,8 @@ extension Workspace: BonsplitDelegate {
                 }
             case .openApp:
                 showAppsMenu(inPane: pane)
+            case .chooseBrowser:
+                showBrowserMenu(inPane: pane)
             case .allowMoreAgentMessages:
                 // In-process only: agents can reach the socket, so a raise
                 // they could call would let them lift their own cap.

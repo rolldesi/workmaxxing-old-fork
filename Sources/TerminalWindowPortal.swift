@@ -131,6 +131,13 @@ final class WindowTerminalHostView: NSView {
     // Test seam: production calls read `NSApp.currentEvent`; tests pass a
     // synthetic pointer event so the typing-latency guard doesn't gate them out.
     func performHitTest(at point: NSPoint, currentEvent: NSEvent?) -> NSView? {
+        // Fork: a box's message counter sits over its tab bar, which this view
+        // otherwise passes through; it takes its own clicks.
+        let localPoint = superview.map { convert(point, from: $0) } ?? point
+        for case let counter as AgentAllowanceTabBarButton in subviews.reversed()
+            where !counter.isHidden && counter.frame.contains(localPoint) {
+            return counter
+        }
         let routingContext = WindowInputRoutingContext(event: currentEvent)
         let eventType = routingContext.eventType
 

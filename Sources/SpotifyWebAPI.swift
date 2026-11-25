@@ -116,8 +116,10 @@ final class SpotifyWebAPI: NSObject, ObservableObject {
             accessToken = token
             accessTokenExpiry = Date().addingTimeInterval((json["expires_in"] as? Double) ?? 3600)
             if let refresh = json["refresh_token"] as? String { SpotifyKeychain.writeRefreshToken(refresh) }
+            let wasSignedIn = isSignedIn
             isSignedIn = true
             lastError = nil
+            if !wasSignedIn { SpotifyModel.shared.refresh() }
         } catch {
             lastError = error.localizedDescription
         }
@@ -163,7 +165,66 @@ final class SpotifyWebAPI: NSObject, ObservableObject {
         await refreshQueue()
     }
 
-    private func call(_ method: String, _ path: String, query: [URLQueryItem] = []) async -> Data? {
+    // MARK: Playback
+
+    struct PlaybackState {
+        struct Item {
+            let name: String
+            let artists: String
+            let imageURL: URL?
+            let durationMs: Int
+        }
+        let isPlaying: Bool
+        let progressMs: Int
+        let shuffle: Bool
+        let repeatMode: String
+        let volume: Int?
+        let item: Item?
+    }
+
+    /// What is playing on the user's account; `.some(nil)` when no device is
+    /// active, nil when the request failed.
+    func playbackState() async -> PlaybackState?? {
+        guard let data = await call("GET", "/me/player") else { return nil }
+        guard !data.isEmpty, let player = try? JSONDecoder().decode(PlayerJSON.self, from: data) else { return .some(nil) }
+        let item = player.item.map { json in
+            PlaybackState.Item(
+                name: json.name,
+                artists: (json.artists ?? []).map(\.name).joined(separator: ", "),
+                imageURL: (json.album?.images?.first?.url ?? json.images?.first?.url).flatMap(URL.init(string:)),
+                durationMs: json.duration_ms ?? 0
+            )
+        }
+        return .some(PlaybackState(
+            isPlaying: player.is_playing,
+            progressMs: player.progress_ms ?? 0,
+            shuffle: player.shuffle_state ?? false,
+            repeatMode: player.repeat_state ?? "off",
+            volume: player.device?.volume_percent,
+            item: item
+        ))
+    }
+
+    /// A `/me/player` command (play, pause, next, shuffle…); true when accepted.
+    @discardableResult
+    func player(_ method: String, _ path: String, query: [String: String] = [:], body: [String: Any]? = nil) async -> Bool {
+        await call(
+            method,
+            "/me/player" + path,
+            query: query.map { URLQueryItem(name: $0.key, value: $0.value) },
+            body: body
+        ) != nil
+    }
+
+    /// The active Connect device, else a computer (this Mac's Spotify), else any.
+    func playbackDevice() async -> String? {
+        guard let data = await call("GET", "/me/player/devices"),
+              let page = try? JSONDecoder().decode(DevicesJSON.self, from: data) else { return nil }
+        let devices = page.devices.filter { $0.id != nil && $0.is_restricted != true }
+        return (devices.first { $0.is_active } ?? devices.first { $0.type == "Computer" } ?? devices.first)?.id
+    }
+
+    private func call(_ method: String, _ path: String, query: [URLQueryItem] = [], body: [String: Any]? = nil) async -> Data? {
         guard let token = await validAccessToken() else { return nil }
         var components = URLComponents(string: "https://api.spotify.com/v1" + path)
         if !query.isEmpty { components?.queryItems = query }
@@ -171,6 +232,13 @@ final class SpotifyWebAPI: NSObject, ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let body {
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        } else if method != "GET" {
+            // Spotify rejects bodiless PUT/POST without a length.
+            request.httpBody = Data()
+        }
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -215,6 +283,7 @@ final class SpotifyWebAPI: NSObject, ObservableObject {
         let id: String?
         let uri: String
         let name: String
+        let duration_ms: Int?
         let artists: [Named]?
         let album: Album?
         let images: [Image]?
@@ -239,6 +308,26 @@ final class SpotifyWebAPI: NSObject, ObservableObject {
 
     private struct QueueJSON: Decodable {
         let queue: [TrackJSON]
+    }
+
+    private struct PlayerJSON: Decodable {
+        struct Device: Decodable { let volume_percent: Int? }
+        let is_playing: Bool
+        let progress_ms: Int?
+        let shuffle_state: Bool?
+        let repeat_state: String?
+        let device: Device?
+        let item: TrackJSON?
+    }
+
+    private struct DevicesJSON: Decodable {
+        struct Device: Decodable {
+            let id: String?
+            let is_active: Bool
+            let is_restricted: Bool?
+            let type: String
+        }
+        let devices: [Device]
     }
 }
 

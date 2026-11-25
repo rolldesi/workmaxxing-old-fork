@@ -1755,7 +1755,7 @@ struct ContentView: View {
                 rootOverride: fileExplorerRootOverride,
                 background: Color(nsColor: windowAppearanceSnapshot.resolvedChromeBackgroundColor),
                 onOpenFile: { openFilePreviewFromSidebar(filePath: $0) },
-                onChooseFolder: chooseLeftSidebarFolder,
+                onOpenFolder: { fileExplorerRootOverride = $0 },
                 onFollowWorkspace: { fileExplorerRootOverride = nil }
             )
         }
@@ -2480,16 +2480,6 @@ struct ContentView: View {
         fileExplorerStore.syncWorkspaceRoot(from: tab)
     }
 
-    private func chooseLeftSidebarFolder() {
-        let open = NSOpenPanel()
-        open.canChooseDirectories = true
-        open.canChooseFiles = false
-        open.allowsMultipleSelection = false
-        open.directoryURL = fileExplorerStore.rootPath.isEmpty ? nil : URL(fileURLWithPath: fileExplorerStore.rootPath)
-        if open.runModal() == .OK, let url = open.url {
-            fileExplorerRootOverride = url.path
-        }
-    }
 
     private var shouldSyncFileExplorerStore: Bool {
         leftSidebarShowsFiles || FileExplorerRootSyncPolicy.shouldSyncFileExplorerStore(

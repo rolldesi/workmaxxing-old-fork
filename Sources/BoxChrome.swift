@@ -51,6 +51,11 @@ extension Workspace {
     /// agent state, color or message-cap change, and when a box is bound.
     func refreshBoxChrome() {
         let capped = AgentMessageCenter.store.cappedSurfaceIds()
+        let appearance = bonsplitController.configuration.appearance
+        let buttonCount = appearance.showSplitButtons ? appearance.splitButtons.count : 0
+        // The tab bar's action-button lane as drawn: ~17.5pt per button plus padding.
+        // ponytail: measured, not read from Bonsplit; re-measure if its button metrics change.
+        let tabBarButtonsWidth = buttonCount == 0 ? 0 : 8 + CGFloat(buttonCount) * 17.5
         for case let panel as TerminalPanel in panels.values {
             let state = agentHibernationLifecycleState(panelId: panel.id, fallback: nil)
             // Red and green stay until the user clicks the box; blue stays while it works.
@@ -68,7 +73,10 @@ extension Workspace {
             ))
             let surfaceId = panel.id.uuidString
             panel.hostedView.agentMessagesCapped = capped.contains(surfaceId)
-            panel.hostedView.setAgentMessageAllowance(AgentMessageCenter.store.remainingAllowance(surfaceId: surfaceId))
+            panel.hostedView.setAgentMessageAllowance(
+                AgentMessageCenter.store.remainingAllowance(surfaceId: surfaceId),
+                tabBarButtonsWidth: tabBarButtonsWidth
+            )
             // In-process only, like the +10 built-in: agents can't raise their own cap.
             panel.hostedView.onAgentAllowanceTap = {
                 _ = AgentMessageCenter.store.raisePairLimits(
@@ -245,3 +253,8 @@ final class BoxAnimationTicker: NSObject {
         link = nil
     }
 }
+
+/// A box's "N+" agent-message counter, drawn over its tab bar (see
+/// GhosttySurfaceScrollView.positionAgentAllowanceButton). The terminal portal
+/// lets this type take clicks in the tab-bar strip it otherwise passes through.
+final class AgentAllowanceTabBarButton: NSButton {}

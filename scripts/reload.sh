@@ -1983,10 +1983,13 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
   /bin/cp -cR "$APP_PATH" "$TAG_APP_STAGING_PATH"
   INFO_PLIST="$TAG_APP_STAGING_PATH/Contents/Info.plist"
   if [[ -f "$INFO_PLIST" ]]; then
-    /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$INFO_PLIST" 2>/dev/null \
-      || /usr/libexec/PlistBuddy -c "Add :CFBundleName string $APP_NAME" "$INFO_PLIST"
-    /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $APP_NAME" "$INFO_PLIST" 2>/dev/null \
-      || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $APP_NAME" "$INFO_PLIST"
+    # Fork: CMUX_DEV_APP_DISPLAY_NAME names the app in the menu bar, About and
+    # Dock without renaming the .app, which the dogfood CLI finds by path.
+    SHOWN_APP_NAME="${CMUX_DEV_APP_DISPLAY_NAME:-$APP_NAME}"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleName $SHOWN_APP_NAME" "$INFO_PLIST" 2>/dev/null \
+      || /usr/libexec/PlistBuddy -c "Add :CFBundleName string $SHOWN_APP_NAME" "$INFO_PLIST"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $SHOWN_APP_NAME" "$INFO_PLIST" 2>/dev/null \
+      || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $SHOWN_APP_NAME" "$INFO_PLIST"
     /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$INFO_PLIST" 2>/dev/null \
       || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$INFO_PLIST"
     if [[ -n "${TAG_SLUG:-}" ]]; then
