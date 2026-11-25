@@ -99,9 +99,22 @@ struct AgentMessagePairLimitTests {
         #expect(store.cappedSurfaceIds() == ["a", "c"])
         store.raisePairLimit(surfaceId: "c", otherSurfaceId: "a", by: 1)
         #expect(store.cappedSurfaceIds().isEmpty)
-        #expect(changes.value == 4)
+        // Two sends, two refusals, the reset and the raise each report.
+        #expect(changes.value == 6)
+    }
+
+    @Test("Each box counts down its tightest pair, and a raise adds to it")
+    func remainingAllowance() throws {
+        let store = AgentMessageStore(fileURL: nil, pairMessageLimit: 10)
+        #expect(store.remainingAllowance(surfaceId: "a") == nil)
+        for _ in 0..<2 { _ = try send(store, from: "a", to: "b") }
+        for _ in 0..<5 { _ = try send(store, from: "a", to: "c") }
+        #expect(store.remainingAllowance(surfaceId: "a") == 5)
+        #expect(store.remainingAllowance(surfaceId: "b") == 8)
+        store.raisePairLimits(involving: "a", by: 10)
+        #expect(store.remainingAllowance(surfaceId: "a") == 15)
         _ = store.claimQueued(recipientSurfaceId: "a", via: "claude.prompt-submit")
-        #expect(changes.value == 4)
+        #expect(store.remainingAllowance(surfaceId: "a") == nil)
     }
 
     @Test("No limit is applied unless one is configured")

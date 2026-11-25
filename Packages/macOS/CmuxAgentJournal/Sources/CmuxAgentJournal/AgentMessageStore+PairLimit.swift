@@ -14,28 +14,38 @@ extension AgentMessageStore {
     /// Lets the pair exchange `by` more messages before it is stopped again.
     public func raisePairLimit(surfaceId: String, otherSurfaceId: String, by: Int) {
         let key = Self.pairKey(surfaceId, otherSurfaceId)
-        let unblocked = lock.withLock {
+        lock.withLock {
             pairExtra[key, default: 0] += by
-            return pairBlocked.remove(key) != nil
+            pairBlocked.remove(key)
         }
-        if unblocked { onPairLimitsChange?() }
+        onPairLimitsChange?()
     }
 
     /// Raises every pair `surfaceId` has messaged in, for the app's
     /// per-box "allow more" button. Returns how many pairs it raised.
     @discardableResult
     public func raisePairLimits(involving surfaceId: String, by: Int) -> Int {
-        let (count, unblocked) = lock.withLock {
+        let count = lock.withLock {
             let keys = pairKeysLocked(involving: surfaceId)
-            var unblocked = false
             for key in keys {
                 pairExtra[key, default: 0] += by
-                if pairBlocked.remove(key) != nil { unblocked = true }
+                pairBlocked.remove(key)
             }
-            return (keys.count, unblocked)
+            return keys.count
         }
-        if unblocked { onPairLimitsChange?() }
+        if count > 0 { onPairLimitsChange?() }
         return count
+    }
+
+    /// Messages the surface can still exchange in its tightest pair, for the
+    /// per-box counter; nil while it has no agent pairs or no limit is set.
+    public func remainingAllowance(surfaceId: String) -> Int? {
+        guard let limit = pairMessageLimit else { return nil }
+        return lock.withLock {
+            pairKeysLocked(involving: surfaceId)
+                .map { max(0, limit + pairExtra[$0, default: 0] - pairSent[$0, default: 0]) }
+                .min()
+        }
     }
 
     /// Surfaces in a pair that was refused a message since its last raise or
@@ -73,14 +83,14 @@ extension AgentMessageStore {
         pairSent[key, default: 0] += 1
     }
 
-    /// Must hold `lock`. Returns whether a blocked pair was freed.
+    /// Must hold `lock`. Returns whether any pair was reset.
     func resetPairsLocked(surfaceId: String) -> Bool {
-        var unblocked = false
-        for key in pairKeysLocked(involving: surfaceId) {
+        let keys = pairKeysLocked(involving: surfaceId)
+        for key in keys {
             pairSent[key] = nil
             pairExtra[key] = nil
-            if pairBlocked.remove(key) != nil { unblocked = true }
+            pairBlocked.remove(key)
         }
-        return unblocked
+        return !keys.isEmpty
     }
 }

@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxWorkspaces
 import Combine
+import EventKit
 import SwiftUI
 
 /// Saved state of an app tab (Spotify, sticky note, prompt queue).
@@ -11,6 +12,7 @@ struct SessionAppWidgetPanelSnapshot: Codable, Sendable {
     var prompts: [String]?
     var targetPanelId: UUID?
     var autoSend: Bool?
+    var path: String?
 }
 
 /// A small native app opened from a box's apps button, living as a tab.
@@ -20,12 +22,16 @@ final class AppWidgetPanel: Panel, ObservableObject {
         case spotify
         case stickyNote
         case promptQueue
+        case vault
+        case calendar
 
         var title: String {
             switch self {
             case .spotify: return String(localized: "appWidget.spotify.title", defaultValue: "Spotify")
             case .stickyNote: return String(localized: "appWidget.stickyNote.title", defaultValue: "Sticky Note")
             case .promptQueue: return String(localized: "appWidget.promptQueue.title", defaultValue: "Prompt Queue")
+            case .vault: return String(localized: "appWidget.vault.title", defaultValue: "Obsidian Vault")
+            case .calendar: return String(localized: "appWidget.calendar.title", defaultValue: "Calendar")
             }
         }
 
@@ -34,6 +40,8 @@ final class AppWidgetPanel: Panel, ObservableObject {
             case .spotify: return "music.note"
             case .stickyNote: return "note.text"
             case .promptQueue: return "list.bullet.rectangle"
+            case .vault: return "books.vertical"
+            case .calendar: return "calendar"
             }
         }
     }
@@ -48,6 +56,8 @@ final class AppWidgetPanel: Panel, ObservableObject {
     @Published var prompts: [String]
     @Published var targetPanelId: UUID?
     @Published var autoSend: Bool
+    /// The vault folder an Obsidian Vault tab browses.
+    @Published var path: String?
     /// Set after the queue sends a prompt; cleared once the agent starts on it,
     /// so one idle reading never sends twice.
     private var awaitingAgentStart = false
@@ -64,6 +74,7 @@ final class AppWidgetPanel: Panel, ObservableObject {
         prompts = snapshot?.prompts ?? []
         targetPanelId = snapshot?.targetPanelId
         autoSend = snapshot?.autoSend ?? false
+        path = snapshot?.path ?? (kind == .vault ? Self.defaultObsidianVault() : nil)
         if kind == .promptQueue {
             queueTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.autoSendIfAgentDone() }
@@ -77,13 +88,42 @@ final class AppWidgetPanel: Panel, ObservableObject {
             text: kind == .stickyNote ? text : nil,
             prompts: kind == .promptQueue ? prompts : nil,
             targetPanelId: targetPanelId,
-            autoSend: kind == .promptQueue ? autoSend : nil
+            autoSend: kind == .promptQueue ? autoSend : nil,
+            path: kind == .vault ? path : nil
         )
     }
 
     func close() {
         queueTimer?.invalidate()
         queueTimer = nil
+    }
+
+    /// Opens a note beside this tab in cmux's markdown viewer (live-reloads on save).
+    func openNote(_ url: URL) {
+        guard let workspace, let pane = workspace.paneId(forPanelId: id) else { return }
+        _ = workspace.newMarkdownSurface(inPane: pane, filePath: url.path, focus: true)
+    }
+
+    static func obsidianURL(for path: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "obsidian"
+        components.host = "open"
+        components.queryItems = [URLQueryItem(name: "path", value: path)]
+        return components.url
+    }
+
+    /// The vault Obsidian last had open, from its own vault list.
+    static func defaultObsidianVault() -> String? {
+        let config = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/obsidian/obsidian.json")
+        guard let data = try? Data(contentsOf: config),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let vaults = json["vaults"] as? [String: [String: Any]] else { return nil }
+        let entries = vaults.values.compactMap { entry -> (path: String, open: Bool, ts: Double)? in
+            guard let path = entry["path"] as? String else { return nil }
+            return (path, entry["open"] as? Bool ?? false, (entry["ts"] as? NSNumber)?.doubleValue ?? 0)
+        }
+        return entries.max { ($0.open ? 1 : 0, $0.ts) < ($1.open ? 1 : 0, $1.ts) }?.path
     }
 
     func focus() {}
@@ -184,6 +224,16 @@ extension Workspace {
             guard open.runModal() == .OK, let url = open.url else { return }
             self?.newMarkdownSurface(inPane: paneId, filePath: url.path, focus: true)
         })
+        menu.addItem(BoxMenuItem(
+            title: String(localized: "appWidget.pdf.title", defaultValue: "PDF…"),
+            symbol: "doc.text.magnifyingglass"
+        ) { [weak self] in
+            let open = NSOpenPanel()
+            open.allowedContentTypes = [.pdf]
+            open.allowsMultipleSelection = false
+            guard open.runModal() == .OK, let url = open.url else { return }
+            _ = self?.newFilePreviewSurface(inPane: paneId, filePath: url.path, focus: true)
+        })
 
         let selectedPanelId = bonsplitController.selectedTab(inPane: paneId).flatMap { panelIdFromSurfaceId($0.id) }
         if let panelId = selectedPanelId, panels[panelId] is TerminalPanel {
@@ -274,6 +324,8 @@ struct AppWidgetPanelView: View {
             case .spotify: SpotifyWidgetView()
             case .stickyNote: StickyNoteView(panel: panel)
             case .promptQueue: PromptQueueView(panel: panel)
+            case .vault: VaultView(panel: panel)
+            case .calendar: CalendarWidgetView()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -667,5 +719,275 @@ private struct VinylDisc: View {
             }
             .rotationEffect(.degrees(context.date.timeIntervalSinceReferenceDate * 45))
         }
+    }
+}
+
+// MARK: - Obsidian vault
+
+private struct VaultNote: Identifiable, Sendable {
+    let url: URL
+    let relativeFolder: String
+    let modified: Date
+    var id: URL { url }
+    var name: String { url.deletingPathExtension().lastPathComponent }
+}
+
+/// Browses an Obsidian vault's notes; opens them in cmux's markdown viewer or in Obsidian.
+private struct VaultView: View {
+    @ObservedObject var panel: AppWidgetPanel
+    @State private var notes: [VaultNote] = []
+    @State private var query = ""
+    @State private var newNoteName = ""
+    @State private var loading = false
+
+    private var filtered: [VaultNote] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return notes }
+        return notes.filter {
+            $0.name.localizedCaseInsensitiveContains(trimmed) || $0.relativeFolder.localizedCaseInsensitiveContains(trimmed)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let path = panel.path {
+                HStack {
+                    Image(systemName: "books.vertical")
+                    Text(URL(fileURLWithPath: path).lastPathComponent).font(.headline).lineLimit(1)
+                    if loading { ProgressView().controlSize(.small) }
+                    Spacer()
+                    Button { Task { await reload() } } label: { Image(systemName: "arrow.clockwise") }
+                        .help(String(localized: "appWidget.vault.refresh", defaultValue: "Refresh"))
+                    Button { openInObsidian(path) } label: { Image(systemName: "arrow.up.forward.app") }
+                        .help(String(localized: "appWidget.vault.openVault", defaultValue: "Open vault in Obsidian"))
+                    Button(String(localized: "appWidget.vault.change", defaultValue: "Change…"), action: pickVault)
+                }
+                .buttonStyle(.borderless)
+                TextField(String(localized: "appWidget.vault.search", defaultValue: "Search notes"), text: $query)
+                    .textFieldStyle(.roundedBorder)
+                List(filtered) { note in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(note.name).lineLimit(1)
+                            if !note.relativeFolder.isEmpty {
+                                Text(note.relativeFolder).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                        }
+                        Spacer()
+                        Button { openInObsidian(note.url.path) } label: { Image(systemName: "arrow.up.forward.app") }
+                            .buttonStyle(.borderless)
+                            .help(String(localized: "appWidget.vault.openNote", defaultValue: "Open in Obsidian"))
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { panel.openNote(note.url) }
+                }
+                HStack {
+                    TextField(String(localized: "appWidget.vault.newNote", defaultValue: "New note name"), text: $newNoteName)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(createNote)
+                    Button(String(localized: "appWidget.vault.create", defaultValue: "Create"), action: createNote)
+                        .disabled(newNoteName.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            } else {
+                Spacer()
+                Text(String(localized: "appWidget.vault.none", defaultValue: "No Obsidian vault found."))
+                    .foregroundStyle(.secondary)
+                Button(String(localized: "appWidget.vault.choose", defaultValue: "Choose Vault Folder…"), action: pickVault)
+                Spacer()
+            }
+        }
+        .padding(10)
+        .task(id: panel.path) { await reload() }
+    }
+
+    private func reload() async {
+        guard let path = panel.path else { return }
+        loading = true
+        let root = URL(fileURLWithPath: path)
+        notes = await Task.detached(priority: .userInitiated) { Self.listNotes(in: root) }.value
+        loading = false
+    }
+
+    // ponytail: capped at 5000 notes, newest first; page or index if vaults grow past that.
+    private nonisolated static func listNotes(in root: URL) -> [VaultNote] {
+        let keys: [URLResourceKey] = [.contentModificationDateKey]
+        guard let walker = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else { return [] }
+        var notes: [VaultNote] = []
+        for case let url as URL in walker where url.pathExtension.lowercased() == "md" {
+            let folder = url.deletingLastPathComponent().path
+                .replacingOccurrences(of: root.path, with: "")
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let modified = (try? url.resourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast
+            notes.append(VaultNote(url: url, relativeFolder: folder, modified: modified))
+            if notes.count >= 5000 { break }
+        }
+        return notes.sorted { $0.modified > $1.modified }
+    }
+
+    private func pickVault() {
+        let open = NSOpenPanel()
+        open.canChooseDirectories = true
+        open.canChooseFiles = false
+        open.allowsMultipleSelection = false
+        if open.runModal() == .OK, let url = open.url { panel.path = url.path }
+    }
+
+    private func openInObsidian(_ path: String) {
+        if let url = AppWidgetPanel.obsidianURL(for: path) { NSWorkspace.shared.open(url) }
+    }
+
+    private func createNote() {
+        let name = newNoteName.trimmingCharacters(in: .whitespaces)
+        guard let path = panel.path, !name.isEmpty, !name.contains("/") else { return }
+        let url = URL(fileURLWithPath: path).appendingPathComponent(name.hasSuffix(".md") ? name : name + ".md")
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: Data("# \(name)\n\n".utf8))
+        }
+        newNoteName = ""
+        panel.openNote(url)
+        Task { await reload() }
+    }
+}
+
+// MARK: - Calendar
+
+/// Upcoming events from the Mac's calendars (EventKit). Asks for access once.
+@MainActor
+final class CalendarModel: ObservableObject {
+    static let shared = CalendarModel()
+
+    enum Access { case unknown, granted, denied }
+
+    @Published private(set) var access: Access = .unknown
+    @Published private(set) var events: [EKEvent] = []
+    private let store = EKEventStore()
+    private var observer: NSObjectProtocol?
+
+    func start() {
+        if observer == nil {
+            observer = NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { CalendarModel.shared.reload() }
+            }
+        }
+        switch EKEventStore.authorizationStatus(for: .event) {
+        case .fullAccess:
+            access = .granted
+            reload()
+        case .notDetermined:
+            store.requestFullAccessToEvents { granted, _ in
+                Task { @MainActor in
+                    CalendarModel.shared.access = granted ? .granted : .denied
+                    CalendarModel.shared.reload()
+                }
+            }
+        default:
+            access = .denied
+        }
+    }
+
+    func reload() {
+        guard access == .granted else { return }
+        let start = Calendar.current.startOfDay(for: Date())
+        guard let end = Calendar.current.date(byAdding: .day, value: 7, to: start) else { return }
+        let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
+        events = store.events(matching: predicate)
+            .filter { $0.endDate > Date() }
+            .sorted { $0.startDate < $1.startDate }
+    }
+
+    func openCalendarApp() {
+        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Calendar.app"))
+    }
+
+    func openPrivacySettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+}
+
+/// The next 7 days of events; just the next event when the tab is small.
+private struct CalendarWidgetView: View {
+    @ObservedObject private var calendar = CalendarModel.shared
+
+    var body: some View {
+        GeometryReader { geometry in
+            Group {
+                switch calendar.access {
+                case .unknown:
+                    ProgressView()
+                case .denied:
+                    VStack(spacing: 8) {
+                        Text(String(localized: "appWidget.calendar.denied", defaultValue: "cmux can't read your calendars."))
+                            .foregroundStyle(.secondary)
+                        Button(String(localized: "appWidget.calendar.settings", defaultValue: "Open Settings"), action: calendar.openPrivacySettings)
+                    }
+                case .granted:
+                    if calendar.events.isEmpty {
+                        Text(String(localized: "appWidget.calendar.empty", defaultValue: "Nothing in the next 7 days"))
+                            .foregroundStyle(.secondary)
+                    } else if geometry.size.width < 260 || geometry.size.height < 200 {
+                        nextEvent(calendar.events[0])
+                    } else {
+                        agenda
+                    }
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .padding(10)
+        .onAppear { calendar.start() }
+    }
+
+    private func nextEvent(_ event: EKEvent) -> some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            VStack(spacing: 4) {
+                Text(event.title ?? "").font(.headline).lineLimit(2).multilineTextAlignment(.center)
+                Text(event.startDate > context.date
+                     ? event.startDate.formatted(.relative(presentation: .named))
+                     : String(localized: "appWidget.calendar.now", defaultValue: "Now"))
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(timeRange(event)).font(.caption2).foregroundStyle(.secondary)
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(nsColor: event.calendar.color).opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+            .onTapGesture(perform: calendar.openCalendarApp)
+        }
+    }
+
+    private var agenda: some View {
+        let days = Dictionary(grouping: calendar.events) { Calendar.current.startOfDay(for: $0.startDate) }
+        return List {
+            ForEach(days.keys.sorted(), id: \.self) { day in
+                Section(day.formatted(.dateTime.weekday(.wide).day().month())) {
+                    ForEach(Array((days[day] ?? []).enumerated()), id: \.offset) { _, event in
+                        HStack(alignment: .top, spacing: 8) {
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(Color(nsColor: event.calendar.color))
+                                .frame(width: 4)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(event.title ?? "").lineLimit(1)
+                                Text(timeRange(event)).font(.caption).foregroundStyle(.secondary)
+                                if let location = event.location, !location.isEmpty {
+                                    Text(location).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture(perform: calendar.openCalendarApp)
+                    }
+                }
+            }
+        }
+    }
+
+    private func timeRange(_ event: EKEvent) -> String {
+        if event.isAllDay { return String(localized: "appWidget.calendar.allDay", defaultValue: "All day") }
+        return "\(event.startDate.formatted(date: .omitted, time: .shortened)) – \(event.endDate.formatted(date: .omitted, time: .shortened))"
     }
 }

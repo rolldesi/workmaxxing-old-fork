@@ -111,8 +111,9 @@ public final class AgentMessageStore: @unchecked Sendable {
     var pairExtra: [String: Int] = [:]
     /// Pairs refused a message and not yet raised or reset.
     var pairBlocked: Set<String> = []
-    /// Called, outside the lock, when the set of capped surfaces may have
-    /// changed; read ``cappedSurfaceIds()`` for the current set.
+    /// Called, outside the lock, whenever pair counts, allowances or the
+    /// capped set may have changed; read ``cappedSurfaceIds()`` and
+    /// ``remainingAllowance(surfaceId:)`` for the current values.
     let onPairLimitsChange: (@Sendable () -> Void)?
 
     // Lock justification: socket handlers call in synchronously from worker
@@ -218,6 +219,7 @@ public final class AgentMessageStore: @unchecked Sendable {
             if case .pairLimitReached = error.block { onPairLimitsChange?() }
             throw error
         }
+        if pairMessageLimit != nil, message.senderSurfaceId != nil { onPairLimitsChange?() }
         onChange?(AgentMessageStoreChange(message: message, state: .queued))
         return message
     }
