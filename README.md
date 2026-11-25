@@ -1,4 +1,4 @@
-> **Unofficial fork.** This is a personal, modified fork of [manaflow-ai/cmux](https://github.com/manaflow-ai/cmux), changed since 2026-11-22 (traffic lights, agent message cap, apps button, Files sidebar and more). It is not affiliated with Manaflow. See [FORK.md](FORK.md) for what changed and how it is licensed. The download links below point to the official upstream app, which does not include these changes.
+> **Workmaxxing** is an unofficial fork of [manaflow-ai/cmux](https://github.com/manaflow-ai/cmux), modified since 2026-11-22 for running many agents at once: traffic lights, an agent message cap, an apps button, a Files sidebar and more. It is not affiliated with Manaflow. See [FORK.md](FORK.md) for what changed and how it is licensed. The download links below point to the official upstream cmux app, which does not include these changes.
 
 <h1 align="center">cmux</h1>
 <p align="center">A Ghostty-based macOS terminal with vertical tabs and notifications for AI coding agents</p>

@@ -1,9 +1,10 @@
-# About this fork
+# Workmaxxing
 
-This repository is an unofficial, personal fork of
-[manaflow-ai/cmux](https://github.com/manaflow-ai/cmux). It is not affiliated
-with or endorsed by Manaflow, Inc. "cmux" is Manaflow's name; this fork keeps
-it only to show where the code comes from.
+Workmaxxing is an unofficial fork of
+[manaflow-ai/cmux](https://github.com/manaflow-ai/cmux), built for running many
+coding agents side by side. It is not affiliated with or endorsed by
+Manaflow, Inc. "cmux" is Manaflow's name; it appears here only where the code
+and its tooling (the `cmux` CLI, settings paths) still use it.
 
 ## Modified
 
