@@ -1694,6 +1694,15 @@ fi
 if [[ -n "$TAG" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SIDEBAR_EXTENSION_POINT_ID="${BUNDLE_ID}.cmux.sidebar")
 fi
+# Fork: CMUX_DEV_ONLY_ACTIVE_ARCH=1 builds Release for this Mac's CPU only
+# (half the compile of a universal binary), and CMUX_WIREGUARD_GO_REQUIRE
+# reaches the tunnel-extension build phase (0 = stub engine, no Go needed).
+if [[ "${CMUX_DEV_ONLY_ACTIVE_ARCH:-}" == "1" ]]; then
+  XCODEBUILD_ARGS+=(ONLY_ACTIVE_ARCH=YES)
+fi
+if [[ -n "${CMUX_WIREGUARD_GO_REQUIRE:-}" ]]; then
+  XCODEBUILD_ARGS+=(CMUX_WIREGUARD_GO_REQUIRE="$CMUX_WIREGUARD_GO_REQUIRE")
+fi
 # Forward explicit CMUX_SKIP_ZIG_BUILD to xcodebuild run script phases.
 if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SKIP_ZIG_BUILD=1)

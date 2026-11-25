@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxAgentJournal
 import CmuxFoundation
 
 /// What a terminal box draws over its edges: the agent traffic light, the
@@ -73,8 +74,13 @@ extension Workspace {
             ))
             let surfaceId = panel.id.uuidString
             panel.hostedView.agentMessagesCapped = capped.contains(surfaceId)
+            // Every box running an agent shows its allowance, from "10+" on.
+            let remaining = AgentMessageCenter.store.remainingAllowance(surfaceId: surfaceId)
+            let hasAgentOrActivity = state != .unknown
+                || agentWorkedPanels.contains(panel.id)
+                || remaining.map { $0 != AgentMessageCenter.pairMessageLimit } ?? false
             panel.hostedView.setAgentMessageAllowance(
-                AgentMessageCenter.store.remainingAllowance(surfaceId: surfaceId),
+                hasAgentOrActivity ? remaining : nil,
                 tabBarButtonsWidth: tabBarButtonsWidth
             )
             // In-process only, like the +10 built-in: agents can't raise their own cap.
@@ -93,6 +99,52 @@ extension Workspace {
         guard state == .needsInput || state == .idle, trafficLightSeen[panelId] != state else { return }
         trafficLightSeen[panelId] = state
         refreshBoxChrome()
+    }
+
+    // MARK: Agent pipes
+
+    /// Pairs two boxes' agents: each gets a note, from Workmaxxing rather
+    /// than either agent, telling it how to message the other and that the
+    /// pair limit applies. The notes arrive through the agents' hooks.
+    func pipeAgents(_ first: UUID, _ second: UUID) {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "agentPipe.title", defaultValue: "Pipe these two agents together")
+        alert.informativeText = String(
+            format: String(
+                localized: "agentPipe.body",
+                defaultValue: "Both agents get a note on how to message each other. They can exchange %d messages before you step in. What should they work on together? (optional)"
+            ),
+            AgentMessageCenter.pairMessageLimit
+        )
+        let goalField = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        goalField.placeholderString = String(localized: "agentPipe.goal", defaultValue: "Goal, e.g. review each other's changes")
+        alert.accessoryView = goalField
+        alert.addButton(withTitle: String(localized: "agentPipe.connect", defaultValue: "Pipe"))
+        alert.addButton(withTitle: String(localized: "agentPipe.cancel", defaultValue: "Cancel"))
+        alert.window.initialFirstResponder = goalField
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let goal = goalField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        for (me, peer) in [(first, second), (second, first)] {
+            let peerTitle = panelTitles[peer] ?? panels[peer]?.displayTitle ?? "another box"
+            var body = """
+            Workmaxxing pipe: you are now paired with the agent in the box "\(peerTitle)". Message it directly with:
+              cmux agent message \(peer.uuidString) "your message"
+            Answer one of its messages with:
+              cmux agent message --reply-to <message-id> "your reply"
+            The two of you can exchange \(AgentMessageCenter.pairMessageLimit) messages before your operator steps in; when cmux refuses a message, stop and wait for them.
+            """
+            if !goal.isEmpty { body += "\nWork together on: \(goal)" }
+            do {
+                try AgentMessageCenter.store.append(AgentMessageDraft(
+                    senderName: "Workmaxxing",
+                    recipientSurfaceId: me.uuidString,
+                    recipientWorkspaceId: id.uuidString,
+                    body: body
+                ))
+            } catch {
+                NSSound.beep()
+            }
+        }
     }
 
     // MARK: Enlarge on double-click

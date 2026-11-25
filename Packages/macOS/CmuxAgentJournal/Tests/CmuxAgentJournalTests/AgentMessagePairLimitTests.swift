@@ -106,7 +106,7 @@ struct AgentMessagePairLimitTests {
     @Test("Each box counts down its tightest pair, and a raise adds to it")
     func remainingAllowance() throws {
         let store = AgentMessageStore(fileURL: nil, pairMessageLimit: 10)
-        #expect(store.remainingAllowance(surfaceId: "a") == nil)
+        #expect(store.remainingAllowance(surfaceId: "a") == 10)
         for _ in 0..<2 { _ = try send(store, from: "a", to: "b") }
         for _ in 0..<5 { _ = try send(store, from: "a", to: "c") }
         #expect(store.remainingAllowance(surfaceId: "a") == 5)
@@ -114,7 +114,20 @@ struct AgentMessagePairLimitTests {
         store.raisePairLimits(involving: "a", by: 10)
         #expect(store.remainingAllowance(surfaceId: "a") == 15)
         _ = store.claimQueued(recipientSurfaceId: "a", via: "claude.prompt-submit")
-        #expect(store.remainingAllowance(surfaceId: "a") == nil)
+        #expect(store.remainingAllowance(surfaceId: "a") == 10)
+    }
+
+    @Test("A raise before any messages carries into the box's pairs")
+    func raiseBeforeMessages() throws {
+        let store = AgentMessageStore(fileURL: nil, pairMessageLimit: 2)
+        #expect(store.raisePairLimits(involving: "a", by: 3) == 1)
+        #expect(store.remainingAllowance(surfaceId: "a") == 5)
+        for _ in 0..<5 { _ = try send(store, from: "a", to: "b") }
+        #expect(throws: AgentMessageBlockedError(block: .pairLimitReached(surfaceIds: ["a", "b"], limit: 5))) {
+            try send(store, from: "b", to: "a")
+        }
+        // Other boxes keep the plain limit.
+        #expect(store.remainingAllowance(surfaceId: "c") == 2)
     }
 
     @Test("No limit is applied unless one is configured")

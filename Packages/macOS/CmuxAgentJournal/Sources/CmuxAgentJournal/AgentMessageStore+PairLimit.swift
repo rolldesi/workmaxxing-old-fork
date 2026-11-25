@@ -31,21 +31,32 @@ extension AgentMessageStore {
                 pairExtra[key, default: 0] += by
                 pairBlocked.remove(key)
             }
-            return keys.count
+            // A box with no conversations yet carries the raise into its future pairs.
+            if keys.isEmpty { surfaceBonus[surfaceId, default: 0] += by }
+            return max(keys.count, 1)
         }
-        if count > 0 { onPairLimitsChange?() }
+        onPairLimitsChange?()
         return count
     }
 
-    /// Messages the surface can still exchange in its tightest pair, for the
-    /// per-box counter; nil while it has no agent pairs or no limit is set.
+    /// Messages the surface can still exchange in its tightest pair (its full
+    /// allowance before it has any), for the per-box counter; nil when no
+    /// limit is set.
     public func remainingAllowance(surfaceId: String) -> Int? {
-        guard let limit = pairMessageLimit else { return nil }
+        guard pairMessageLimit != nil else { return nil }
         return lock.withLock {
-            pairKeysLocked(involving: surfaceId)
-                .map { max(0, limit + pairExtra[$0, default: 0] - pairSent[$0, default: 0]) }
-                .min()
+            let keys = pairKeysLocked(involving: surfaceId)
+            guard !keys.isEmpty else { return allowedLocked(pairKey: Self.pairKey(surfaceId, surfaceId)) }
+            return keys.map { max(0, allowedLocked(pairKey: $0) - pairSent[$0, default: 0]) }.min()
         }
+    }
+
+    /// Must hold `lock`. The limit, the pair's raises and both surfaces' bonuses.
+    private func allowedLocked(pairKey key: String) -> Int {
+        let surfaces = Set(key.split(separator: "|").map(String.init))
+        return (pairMessageLimit ?? 0)
+            + pairExtra[key, default: 0]
+            + surfaces.reduce(0) { $0 + surfaceBonus[$1, default: 0] }
     }
 
     /// Surfaces in a pair that was refused a message since its last raise or
@@ -71,7 +82,8 @@ extension AgentMessageStore {
     func pairLimitBlockLocked(_ draft: AgentMessageDraft) -> AgentMessageBlock? {
         guard let limit = pairMessageLimit,
               let key = limitedPairKey(draft.senderSurfaceId, draft.recipientSurfaceId) else { return nil }
-        let allowed = limit + pairExtra[key, default: 0]
+        _ = limit
+        let allowed = allowedLocked(pairKey: key)
         guard pairSent[key, default: 0] >= allowed else { return nil }
         pairBlocked.insert(key)
         return .pairLimitReached(surfaceIds: key.split(separator: "|").map(String.init), limit: allowed)
@@ -83,7 +95,7 @@ extension AgentMessageStore {
         pairSent[key, default: 0] += 1
     }
 
-    /// Must hold `lock`. Returns whether any pair was reset.
+    /// Must hold `lock`. Returns whether anything was reset.
     func resetPairsLocked(surfaceId: String) -> Bool {
         let keys = pairKeysLocked(involving: surfaceId)
         for key in keys {
@@ -91,6 +103,7 @@ extension AgentMessageStore {
             pairExtra[key] = nil
             pairBlocked.remove(key)
         }
-        return !keys.isEmpty
+        let hadBonus = surfaceBonus.removeValue(forKey: surfaceId) != nil
+        return !keys.isEmpty || hadBonus
     }
 }

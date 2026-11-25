@@ -111,6 +111,9 @@ public final class AgentMessageStore: @unchecked Sendable {
     var pairExtra: [String: Int] = [:]
     /// Pairs refused a message and not yet raised or reset.
     var pairBlocked: Set<String> = []
+    /// Extra messages a surface was granted before (or beyond) its pairs,
+    /// added to every pair it is in.
+    var surfaceBonus: [String: Int] = [:]
     /// Called, outside the lock, whenever pair counts, allowances or the
     /// capped set may have changed; read ``cappedSurfaceIds()`` and
     /// ``remainingAllowance(surfaceId:)`` for the current values.

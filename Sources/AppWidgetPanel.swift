@@ -243,6 +243,26 @@ extension Workspace {
         let selectedPanelId = bonsplitController.selectedTab(inPane: paneId).flatMap { panelIdFromSurfaceId($0.id) }
         if let panelId = selectedPanelId, panels[panelId] is TerminalPanel {
             menu.addItem(.separator())
+            let peers = panels.values.compactMap { $0 as? TerminalPanel }
+                .filter { $0.id != panelId }
+                .map { ($0.id, panelTitles[$0.id] ?? $0.displayTitle) }
+                .sorted { $0.1.localizedStandardCompare($1.1) == .orderedAscending }
+            if !peers.isEmpty {
+                let pipe = NSMenuItem(
+                    title: String(localized: "agentPipe.menu", defaultValue: "Pipe to Agent"),
+                    action: nil,
+                    keyEquivalent: ""
+                )
+                pipe.image = NSImage(systemSymbolName: "arrow.left.arrow.right", accessibilityDescription: nil)
+                let peerMenu = NSMenu()
+                for (peerId, title) in peers {
+                    peerMenu.addItem(BoxMenuItem(title: title, symbol: "terminal") { [weak self] in
+                        self?.pipeAgents(panelId, peerId)
+                    })
+                }
+                pipe.submenu = peerMenu
+                menu.addItem(pipe)
+            }
             menu.addItem(BoxMenuItem(
                 title: String(localized: "boxChrome.enlarge", defaultValue: "Enlarge Box"),
                 symbol: "arrow.up.left.and.arrow.down.right"
