@@ -10797,6 +10797,9 @@ final class GhosttySurfaceScrollView: NSView {
     private let boxOutlineLayer = CAShapeLayer()
     private let trafficLightLayer = CAShapeLayer()
     private var boxChrome = BoxChrome()
+    private var agentAllowanceButton: NSButton?
+    /// Adds 10 agent messages for this box; set by Workspace.refreshBoxChrome().
+    var onAgentAllowanceTap: (() -> Void)?
     /// Greys the box, focused or not, while its agent is out of messages to
     /// another agent. Set by `AgentMessageCenter.applyCappedSurfaces()`.
     var agentMessagesCapped = false {
@@ -11641,6 +11644,7 @@ final class GhosttySurfaceScrollView: NSView {
             _ = setFrameIfNeeded(boxChromeOverlayView, to: bounds)
             updateBoxChromePaths()
         }
+        layoutAgentAllowanceButton()
         _ = setFrameIfNeeded(linkHoverIndicatorView, to: contentFrame)
         _ = setFrameIfNeeded(passwordInputIndicatorView, to: contentFrame)
         if let cloudTerminalReconnectOverlayView { _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: contentFrame) }
@@ -12057,6 +12061,51 @@ final class GhosttySurfaceScrollView: NSView {
         trafficLightLayer.shadowColor = chrome.trafficLight?.cgColor
         boxChromeOverlayView.isHidden = chrome == BoxChrome()
         CATransaction.commit()
+    }
+
+    /// Shows "N+" in the box's top-right corner: agent messages it has left.
+    /// Nil hides it (no agent conversations yet).
+    func setAgentMessageAllowance(_ remaining: Int?) {
+        guard let remaining else {
+            agentAllowanceButton?.isHidden = true
+            return
+        }
+        let button: NSButton
+        if let existing = agentAllowanceButton {
+            button = existing
+        } else {
+            button = NSButton(title: "", target: self, action: #selector(agentAllowanceTapped))
+            button.bezelStyle = .inline
+            button.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+            button.toolTip = String(
+                localized: "agentMessage.allowance.tooltip",
+                defaultValue: "Agent messages this box has left before it pauses. Click for 10 more."
+            )
+            agentAllowanceButton = button
+        }
+        let title = "\(remaining)+"
+        if button.title != title { button.title = title }
+        button.contentTintColor = remaining == 0 ? .systemRed : nil
+        button.isHidden = false
+        // Keep it above overlays added after it.
+        if subviews.last !== button { addSubview(button) }
+        layoutAgentAllowanceButton()
+    }
+
+    private func layoutAgentAllowanceButton() {
+        guard let button = agentAllowanceButton, !button.isHidden else { return }
+        button.sizeToFit()
+        let size = button.frame.size
+        button.frame = CGRect(
+            x: bounds.width - size.width - 14,
+            y: isFlipped ? 8 : bounds.height - size.height - 8,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    @objc private func agentAllowanceTapped() {
+        onAgentAllowanceTap?()
     }
 
     private func updateBoxChromePaths() {

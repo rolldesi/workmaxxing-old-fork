@@ -2137,7 +2137,10 @@ fi
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
 fi
-if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
+# Fork: CMUX_DEV_SIGN_IDENTITY signs with a stable local identity so macOS
+# privacy grants (Desktop folder, Automation, Calendars) survive rebuilds;
+# ad-hoc signing ("-") makes every build a new app to TCC.
+if ! /usr/bin/codesign --force --sign "${CMUX_DEV_SIGN_IDENTITY:--}" --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
   if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" ]]; then
     echo "warning: codesign failed for $APP_PATH; continuing because CMUX_ALLOW_UNSIGNED_DEV_APP=1" >&2
   else

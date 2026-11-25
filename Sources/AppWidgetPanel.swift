@@ -235,6 +235,13 @@ extension Workspace {
             _ = self?.newFilePreviewSurface(inPane: paneId, filePath: url.path, focus: true)
         })
 
+        menu.addItem(.separator())
+        for source in BrowserWithLogins.allCases {
+            menu.addItem(BoxMenuItem(title: source.menuTitle, symbol: source.symbol) { [weak self] in
+                self?.openBrowserWithLogins(source, inPane: paneId)
+            })
+        }
+
         let selectedPanelId = bonsplitController.selectedTab(inPane: paneId).flatMap { panelIdFromSurfaceId($0.id) }
         if let panelId = selectedPanelId, panels[panelId] is TerminalPanel {
             menu.addItem(.separator())
@@ -422,6 +429,9 @@ final class SpotifyModel: ObservableObject {
     @Published private(set) var duration: Double = 0
     @Published private(set) var position: Double = 0
     @Published private(set) var positionReadAt = Date()
+    @Published private(set) var shuffling = false
+    @Published private(set) var repeating = false
+    @Published private(set) var volume: Double = 50
     @Published private(set) var lastError: String?
 
     private var viewers = 0
@@ -492,7 +502,7 @@ final class SpotifyModel: ObservableObject {
                 set s to player state as string
                 if s is "stopped" then return "stopped"
                 set t to current track
-                return s & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (artwork url of t) & linefeed & ((duration of t) as string) & linefeed & ((player position) as string)
+                return s & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (artwork url of t) & linefeed & ((duration of t) as string) & linefeed & ((player position) as string) & linefeed & (shuffling as string) & linefeed & (repeating as string) & linefeed & (sound volume as string)
             end tell
         else
             return "notrunning"
@@ -503,9 +513,40 @@ final class SpotifyModel: ObservableObject {
         }
     }
 
-    func playPause() { command("playpause") }
+    func playPause() {
+        status == .notRunning ? startInBackground(then: "play") : command("playpause")
+    }
     func next() { command("next track") }
     func previous() { command("previous track") }
+    func toggleShuffle() { command("set shuffling to not shuffling") }
+    func toggleRepeat() { command("set repeating to not repeating") }
+    func setVolume(_ level: Double) { command("set sound volume to \(Int(level.rounded()))") }
+
+    /// Plays a track or other Spotify URI now, starting Spotify hidden if needed.
+    func play(uri: String) {
+        // URIs are spotify:kind:id; anything else never reaches the script.
+        guard uri.allSatisfy({ $0.isLetter || $0.isNumber || $0 == ":" }) else { return }
+        let verb = "play track \"\(uri)\""
+        status == .notRunning ? startInBackground(then: verb) : command(verb)
+    }
+
+    /// Starts Spotify without showing its window, then runs `verb` once it is up.
+    func startInBackground(then verb: String? = nil) {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.spotify.client") else {
+            lastError = String(localized: "appWidget.spotify.notInstalled", defaultValue: "Spotify isn't installed.")
+            return
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        configuration.hides = true
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, _ in
+            Task { @MainActor in
+                // ponytail: fixed wait for Spotify to accept commands; poll its state if 3s proves flaky.
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                if let verb { SpotifyModel.shared.command(verb) } else { SpotifyModel.shared.refresh() }
+            }
+        }
+    }
 
     func openSpotify() {
         if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.spotify.client") {
@@ -513,7 +554,7 @@ final class SpotifyModel: ObservableObject {
         }
     }
 
-    private func command(_ verb: String) {
+    fileprivate func command(_ verb: String) {
         Self.run("if application \"Spotify\" is running then tell application \"Spotify\" to \(verb)") { [weak self] _, error in
             if let error { self?.lastError = error }
             self?.refresh()
@@ -535,6 +576,11 @@ final class SpotifyModel: ObservableObject {
             duration = (Double(lines[4].replacingOccurrences(of: ",", with: ".")) ?? 0) / 1000
             position = Double(lines[5].replacingOccurrences(of: ",", with: ".")) ?? 0
             positionReadAt = Date()
+            if lines.count >= 9 {
+                shuffling = lines[6] == "true"
+                repeating = lines[7] == "true"
+                volume = Double(lines[8]) ?? volume
+            }
         default:
             break
         }
@@ -582,8 +628,13 @@ private struct SpotifyWidgetView: View {
                 case .notRunning:
                     VStack(spacing: 10) {
                         Image(systemName: "music.note").font(.largeTitle).foregroundStyle(.secondary)
-                        Button(String(localized: "appWidget.spotify.open", defaultValue: "Open Spotify"), action: spotify.openSpotify)
+                        Button {
+                            spotify.playPause()
+                        } label: {
+                            Label(String(localized: "appWidget.spotify.playHidden", defaultValue: "Play (Spotify stays hidden)"), systemImage: "play.fill")
+                        }
                         if let error = spotify.lastError, !spotify.needsPermission { errorText(error) }
+                        if size.width >= 340 && size.height >= 380 { SpotifyLibraryView() }
                     }
                 case .stopped:
                     VStack(spacing: 10) {
@@ -593,7 +644,7 @@ private struct SpotifyWidgetView: View {
                 case .playing, .paused:
                     if size.width < 260 || size.height < 200 {
                         compact(size)
-                    } else if size.width >= 380 && size.height >= 440 {
+                    } else if size.width >= 340 && size.height >= 380 {
                         large(size)
                     } else {
                         medium(size)
@@ -635,15 +686,30 @@ private struct SpotifyWidgetView: View {
     }
 
     private func large(_ size: CGSize) -> some View {
-        VStack(spacing: 14) {
-            artwork.frame(width: min(size.width, size.height * 0.6), height: min(size.width, size.height * 0.6))
-            titleBlock.frame(maxWidth: .infinity, alignment: .leading)
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let elapsed = spotify.status == .playing ? context.date.timeIntervalSince(spotify.positionReadAt) : 0
-                ProgressView(value: min(spotify.position + elapsed, max(spotify.duration, 1)), total: max(spotify.duration, 1))
-                    .tint(.green)
+        VStack(spacing: 10) {
+            HStack(spacing: 12) {
+                artwork.frame(width: 76, height: 76)
+                VStack(alignment: .leading, spacing: 6) {
+                    titleBlock
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        let elapsed = spotify.status == .playing ? context.date.timeIntervalSince(spotify.positionReadAt) : 0
+                        ProgressView(value: min(spotify.position + elapsed, max(spotify.duration, 1)), total: max(spotify.duration, 1))
+                            .tint(.green)
+                    }
+                }
             }
-            controls
+            HStack(spacing: 18) {
+                Button(action: spotify.toggleShuffle) {
+                    Image(systemName: "shuffle").foregroundStyle(spotify.shuffling ? Color.green : Color.white.opacity(0.7))
+                }
+                controls
+                Button(action: spotify.toggleRepeat) {
+                    Image(systemName: "repeat").foregroundStyle(spotify.repeating ? Color.green : Color.white.opacity(0.7))
+                }
+            }
+            .buttonStyle(.plain)
+            SpotifyVolumeSlider(spotify: spotify)
+            SpotifyLibraryView()
         }
     }
 
@@ -989,5 +1055,86 @@ private struct CalendarWidgetView: View {
     private func timeRange(_ event: EKEvent) -> String {
         if event.isAllDay { return String(localized: "appWidget.calendar.allDay", defaultValue: "All day") }
         return "\(event.startDate.formatted(date: .omitted, time: .shortened)) – \(event.endDate.formatted(date: .omitted, time: .shortened))"
+    }
+}
+
+/// Volume that only tells Spotify the level when the drag ends.
+private struct SpotifyVolumeSlider: View {
+    @ObservedObject var spotify: SpotifyModel
+    @State private var level: Double = 50
+    @State private var dragging = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "speaker.fill").font(.caption2).foregroundStyle(.white.opacity(0.6))
+            Slider(value: $level, in: 0...100) { editing in
+                dragging = editing
+                if !editing { spotify.setVolume(level) }
+            }
+            .tint(.green)
+            Image(systemName: "speaker.wave.3.fill").font(.caption2).foregroundStyle(.white.opacity(0.6))
+        }
+        .onAppear { level = spotify.volume }
+        .onChange(of: spotify.volume) { _, newValue in if !dragging { level = newValue } }
+    }
+}
+
+// MARK: - Browsers with the user's logins
+
+/// A cmux browser profile carrying cookies imported from a real browser, so
+/// sites open signed in. Agents reach the same profile with
+/// `cmux browser open --profile Chrome` (or Safari).
+enum BrowserWithLogins: CaseIterable {
+    case chrome
+    case safari
+
+    var profileName: String { self == .chrome ? "Chrome" : "Safari" }
+    var importId: String { self == .chrome ? "google-chrome" : "safari" }
+    var menuTitle: String {
+        self == .chrome
+            ? String(localized: "appWidget.browser.chrome", defaultValue: "Chrome (your logins)")
+            : String(localized: "appWidget.browser.safari", defaultValue: "Safari (your logins)")
+    }
+    var symbol: String { self == .chrome ? "globe" : "safari" }
+}
+
+extension Workspace {
+    /// Opens a browser tab on the matching profile. The first time it imports
+    /// that browser's cookies before loading; later it refreshes them after.
+    func openBrowserWithLogins(_ source: BrowserWithLogins, inPane paneId: PaneID) {
+        let store = BrowserProfileStore.shared
+        guard let profile = store.profiles.first(where: { $0.displayName == source.profileName })
+                ?? store.createProfile(named: source.profileName) else { return }
+        let importedKey = "cmuxFork.browserLoginsImported.\(source.profileName)"
+        let firstTime = !UserDefaults.standard.bool(forKey: importedKey)
+        Task { @MainActor [weak self] in
+            if firstTime {
+                await Self.importLogins(source, reportProblems: true)
+                UserDefaults.standard.set(true, forKey: importedKey)
+            }
+            _ = self?.newBrowserSurface(inPane: paneId, focus: true, preferredProfileID: profile.id)
+            if !firstTime { await Self.importLogins(source, reportProblems: false) }
+        }
+    }
+
+    private static func importLogins(_ source: BrowserWithLogins, reportProblems: Bool) async {
+        guard let coordinator = AppDelegate.shared?.browserDataImportCoordinator else { return }
+        let params: [String: Any] = ["browser": source.importId, "destination_profile": source.profileName]
+        var problems: [String] = []
+        do {
+            let outcome = try await BrowserImportAutomation.importCookies(params: params, coordinator: coordinator)
+            problems = outcome.warnings
+        } catch {
+            problems = [error.localizedDescription]
+        }
+        guard reportProblems, !problems.isEmpty else { return }
+        // Safari needs Full Disk Access; Chrome asks for its Keychain item.
+        let alert = NSAlert()
+        alert.messageText = String(
+            format: String(localized: "appWidget.browser.importProblem", defaultValue: "Some %@ logins couldn't be imported"),
+            source.profileName
+        )
+        alert.informativeText = problems.joined(separator: "\n\n")
+        alert.runModal()
     }
 }

@@ -1003,6 +1003,10 @@ struct ContentView: View {
     @State private var sidebarRenderWorkerClient: RenderWorkerClient?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
+    /// Fork: the left sidebar shows Files instead of the workspace list.
+    @AppStorage("cmuxFork.leftSidebarShowsFiles") private var leftSidebarShowsFiles = false
+    /// Fork: a folder picked for the left Files view instead of the workspace's directory.
+    @State private var fileExplorerRootOverride: String?
     @StateObject private var sessionIndexStore = SessionIndexStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
@@ -1743,6 +1747,20 @@ struct ContentView: View {
                 sidebar
             }
         }
+        .overlay {
+            LeftSidebarFilesOverlay(
+                showsFiles: $leftSidebarShowsFiles,
+                store: fileExplorerStore,
+                state: fileExplorerState,
+                rootOverride: fileExplorerRootOverride,
+                background: Color(nsColor: windowAppearanceSnapshot.resolvedChromeBackgroundColor),
+                onOpenFile: { openFilePreviewFromSidebar(filePath: $0) },
+                onChooseFolder: chooseLeftSidebarFolder,
+                onFollowWorkspace: { fileExplorerRootOverride = nil }
+            )
+        }
+        .onChange(of: leftSidebarShowsFiles) { _, _ in syncFileExplorerDirectory() }
+        .onChange(of: fileExplorerRootOverride) { _, _ in syncFileExplorerDirectory() }
         .modifier(SidebarWidthFrameModifier(layout: sidebarLayout))
         .frame(maxHeight: .infinity, alignment: .topLeading)
         .background(SidebarPointerEventHost(
@@ -2451,11 +2469,30 @@ struct ContentView: View {
             fileExplorerStore.applyWorkspaceRoot(.none)
             return
         }
+        if leftSidebarShowsFiles, let override = fileExplorerRootOverride {
+            if fileExplorerStore.rootPath != override {
+                // Stop following the workspace, then root at the picked folder.
+                fileExplorerStore.applyWorkspaceRoot(.none)
+                fileExplorerStore.applyWorkspaceRoot(.local(workspaceId: tab.id, path: override))
+            }
+            return
+        }
         fileExplorerStore.syncWorkspaceRoot(from: tab)
     }
 
+    private func chooseLeftSidebarFolder() {
+        let open = NSOpenPanel()
+        open.canChooseDirectories = true
+        open.canChooseFiles = false
+        open.allowsMultipleSelection = false
+        open.directoryURL = fileExplorerStore.rootPath.isEmpty ? nil : URL(fileURLWithPath: fileExplorerStore.rootPath)
+        if open.runModal() == .OK, let url = open.url {
+            fileExplorerRootOverride = url.path
+        }
+    }
+
     private var shouldSyncFileExplorerStore: Bool {
-        FileExplorerRootSyncPolicy.shouldSyncFileExplorerStore(
+        leftSidebarShowsFiles || FileExplorerRootSyncPolicy.shouldSyncFileExplorerStore(
             isRightSidebarVisible: fileExplorerState.isVisible,
             mode: fileExplorerState.mode
         )

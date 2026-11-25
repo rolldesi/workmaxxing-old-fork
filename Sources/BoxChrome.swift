@@ -66,7 +66,16 @@ extension Workspace {
                 outline: BoxColorStore.color(.outline, panelId: panel.id),
                 tint: BoxColorStore.color(.tint, panelId: panel.id)
             ))
-            panel.hostedView.agentMessagesCapped = capped.contains(panel.id.uuidString)
+            let surfaceId = panel.id.uuidString
+            panel.hostedView.agentMessagesCapped = capped.contains(surfaceId)
+            panel.hostedView.setAgentMessageAllowance(AgentMessageCenter.store.remainingAllowance(surfaceId: surfaceId))
+            // In-process only, like the +10 built-in: agents can't raise their own cap.
+            panel.hostedView.onAgentAllowanceTap = {
+                _ = AgentMessageCenter.store.raisePairLimits(
+                    involving: surfaceId,
+                    by: AgentMessageCenter.pairMessageLimitStep
+                )
+            }
         }
     }
 
@@ -131,34 +140,57 @@ extension Workspace {
         animateDividers(to: boxOriginalPositions)
     }
 
-    /// Moves dividers to their targets along a slightly bouncy spring.
+    /// Glides dividers to their targets, one step per display refresh.
     private func animateDividers(to targets: [UUID: Double]) {
-        boxEnlargeAnimation?.invalidate()
+        if let running = boxEnlargeAnimation {
+            running.stop()
+            splitTabBarDividerDragDidEnd(bonsplitController)
+        }
         var starts: [UUID: Double] = [:]
         Self.collectDividerPositions(bonsplitController.treeSnapshot(), into: &starts)
-        let begin = CACurrentMediaTime()
-        let duration = 0.45
-        boxEnlargeAnimation = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
-            MainActor.assumeIsolated {
-                guard let self else { timer.invalidate(); return }
-                let t = min(1, (CACurrentMediaTime() - begin) / duration)
-                // Damped spring: ~5% overshoot, settled by t = 1.
-                let progress = t >= 1 ? 1 : 1 - exp(-7 * t) * cos(9 * t)
-                for (splitId, target) in targets {
-                    let from = starts[splitId] ?? target
-                    _ = self.bonsplitController.setDividerPosition(
-                        CGFloat(from + (target - from) * progress),
-                        forSplit: splitId,
-                        fromExternal: true
-                    )
-                }
-                guard t >= 1 else { return }
-                timer.invalidate()
-                self.boxEnlargeAnimation = nil
-                // The normal layout is reached; forget it until the next enlarge.
-                if self.enlargedBox == nil { self.boxOriginalPositions = [:] }
-                self.didProgrammaticallyChangeSplitGeometry()
+        let apply: @MainActor (Double) -> Void = { [weak self] progress in
+            guard let self else { return }
+            for (splitId, target) in targets {
+                let from = starts[splitId] ?? target
+                _ = self.bonsplitController.setDividerPosition(
+                    CGFloat(from + (target - from) * progress),
+                    forSplit: splitId,
+                    fromExternal: true
+                )
             }
+        }
+        let finish: @MainActor () -> Void = { [weak self] in
+            guard let self else { return }
+            self.boxEnlargeAnimation = nil
+            // The normal layout is reached; forget it until the next enlarge.
+            if self.enlargedBox == nil { self.boxOriginalPositions = [:] }
+            self.didProgrammaticallyChangeSplitGeometry()
+        }
+        guard let view = panels.values.lazy
+            .compactMap({ ($0 as? TerminalPanel)?.hostedView })
+            .first(where: { $0.window != nil }) else {
+            apply(1)
+            finish()
+            return
+        }
+        // Terminals resize as they do while a divider is dragged, which keeps
+        // the motion smooth, then settle once at the end.
+        splitTabBarDividerDragDidBegin(bonsplitController)
+        let begin = CACurrentMediaTime()
+        let duration = 0.5
+        boxEnlargeAnimation = BoxAnimationTicker(view: view) { [weak self] in
+            let t = CACurrentMediaTime() - begin
+            guard t < duration else {
+                apply(1)
+                if let self { self.splitTabBarDividerDragDidEnd(self.bonsplitController) }
+                finish()
+                return true
+            }
+            // Critically damped spring: eases in and out with no overshoot,
+            // so each box only grows or shrinks, never bounces back.
+            let stiffness = 14.0
+            apply(1 - (1 + stiffness * t) * exp(-stiffness * t))
+            return false
         }
     }
 
@@ -187,5 +219,29 @@ extension Workspace {
             if let rest = splitPath(split.second, to: paneId) { return [(split, false)] + rest }
             return nil
         }
+    }
+}
+
+/// Calls `onFrame` once per display refresh of the view's screen until it returns true.
+@MainActor
+final class BoxAnimationTicker: NSObject {
+    private var link: CADisplayLink?
+    private let onFrame: @MainActor () -> Bool
+
+    init(view: NSView, onFrame: @escaping @MainActor () -> Bool) {
+        self.onFrame = onFrame
+        super.init()
+        let link = view.displayLink(target: self, selector: #selector(step(_:)))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    @objc private func step(_ link: CADisplayLink) {
+        if onFrame() { stop() }
+    }
+
+    func stop() {
+        link?.invalidate()
+        link = nil
     }
 }

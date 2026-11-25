@@ -4912,7 +4912,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     /// The box a tab double-click enlarged, until focus leaves it. See BoxChrome.swift.
     var enlargedBox: EnlargedBox?
-    var boxEnlargeAnimation: Timer?
+    var boxEnlargeAnimation: BoxAnimationTicker?
     /// Divider positions of the normal layout while a box is enlarged or springing back.
     var boxOriginalPositions: [UUID: Double] = [:]
     /// Red/green traffic lights the user already clicked, by box. See BoxChrome.swift.

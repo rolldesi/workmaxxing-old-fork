@@ -1051,8 +1051,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
         .newBrowser,
         .splitRight,
         .splitDown,
-        .openApp,
-        .allowMoreAgentMessages
+        .openApp
     ]
 
     static func builtIn(
@@ -2308,8 +2307,7 @@ final class CmuxConfigStore: ObservableObject {
             .builtIn(.newBrowser),
             .builtIn(.splitRight),
             .builtIn(.splitDown),
-            .builtIn(.openApp),
-            .builtIn(.allowMoreAgentMessages)
+            .builtIn(.openApp)
         ]
         let resolvedButtons = resolvedSurfaceTabBarButtons(
             configuredButtons,
