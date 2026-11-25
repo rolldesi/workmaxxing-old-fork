@@ -4464,6 +4464,7 @@
 		C7B206ECEE3E020A96259AFF /* WebKitBrowserReplDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F63189EE1BF0052D9BDC241 /* WebKitBrowserReplDriver.swift */; };
 		A10020000000000000000019 /* WebSurfaceSelectionEvaluationOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1002000000000000000001A /* WebSurfaceSelectionEvaluationOwner.swift */; };
 		A10020000000000000000011 /* WebSurfaceSelectionReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10020000000000000000012 /* WebSurfaceSelectionReader.swift */; };
+		FB3DD5A185C7A79B70F6F4CA /* WelcomeWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 865672E052904004896B2557 /* WelcomeWindow.swift */; };
 		A500120C /* WindowAccessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001222 /* WindowAccessor.swift */; };
 		063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */; };
 		A59170000000000000000001 /* WindowAppearanceSnapshotPaneBackgroundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59170000000000000000002 /* WindowAppearanceSnapshotPaneBackgroundTests.swift */; };
@@ -9144,6 +9145,7 @@
 		9F63189EE1BF0052D9BDC241 /* WebKitBrowserReplDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserRepl/WebKitBrowserReplDriver.swift; sourceTree = "<group>"; };
 		A1002000000000000000001A /* WebSurfaceSelectionEvaluationOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WebSurfaceSelectionEvaluationOwner.swift; sourceTree = "<group>"; };
 		A10020000000000000000012 /* WebSurfaceSelectionReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WebSurfaceSelectionReader.swift; sourceTree = "<group>"; };
+		865672E052904004896B2557 /* WelcomeWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeWindow.swift; sourceTree = "<group>"; };
 		A5001222 /* WindowAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAccessor.swift; sourceTree = "<group>"; };
 		BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAndDragTests.swift; sourceTree = "<group>"; };
 		A59170000000000000000002 /* WindowAppearanceSnapshotPaneBackgroundTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAppearanceSnapshotPaneBackgroundTests.swift; sourceTree = "<group>"; };
@@ -12568,6 +12570,7 @@
 				C037CA7A6B20B3F495BAB401 /* PortTerminalDeviceLookup.swift */,
 				7195972CC9EBB2353ACFF8AB /* TestProcessDefaults.swift */,
 				B4D8C93336B3DC2F9B4299AA /* AgentMessageCenter.swift */,
+				865672E052904004896B2557 /* WelcomeWindow.swift */,
 				3DDC0362A89F5C16756EA52D /* SpotifyWebAPI.swift */,
 				8E378607FD6E692F835EE8AE /* LeftSidebarFiles.swift */,
 				9598E40FC00DFA4186C8177D /* AppWidgetPanel.swift */,
@@ -17769,6 +17772,7 @@
 				C7B206ECEE3E020A96259AFF /* WebKitBrowserReplDriver.swift in Sources */,
 				A10020000000000000000019 /* WebSurfaceSelectionEvaluationOwner.swift in Sources */,
 				A10020000000000000000011 /* WebSurfaceSelectionReader.swift in Sources */,
+				FB3DD5A185C7A79B70F6F4CA /* WelcomeWindow.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,
 				9065A0020000000000000001 /* WindowAppKitCapture.swift in Sources */,
 				A5001900A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift in Sources */,

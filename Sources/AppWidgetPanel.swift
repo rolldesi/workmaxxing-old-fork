@@ -209,6 +209,11 @@ extension Workspace {
     /// The apps button's menu: open an app tab in this pane, or style its box.
     func showAppsMenu(inPane paneId: PaneID) {
         let menu = NSMenu()
+        menu.addItem(BoxMenuItem(
+            title: String(localized: "appWidget.openProject", defaultValue: "Open Project…"),
+            symbol: "rectangle.stack.badge.plus"
+        ) { WelcomeWindowController.shared.show() })
+        menu.addItem(.separator())
         for kind in AppWidgetPanel.Kind.allCases {
             menu.addItem(BoxMenuItem(title: kind.title, symbol: kind.icon) { [weak self] in
                 self?.newAppWidgetSurface(inPane: paneId, kind: kind, focus: true)
