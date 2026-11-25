@@ -373,6 +373,7 @@ final class SpotifyModel: ObservableObject {
     @Published private(set) var lastError: String?
 
     private var viewers = 0
+    private var refreshInFlight = false
     private var timer: Timer?
     private var observer: NSObjectProtocol?
 
@@ -403,7 +404,36 @@ final class SpotifyModel: ObservableObject {
         observer = nil
     }
 
+    /// macOS refused to let cmux send Apple events to Spotify (error -1743).
+    var needsPermission: Bool {
+        guard let lastError else { return false }
+        return lastError.contains("-1743") || lastError.localizedCaseInsensitiveContains("not authori")
+    }
+
+    /// Forgets this app's Automation decision so the next call asks again.
+    /// Rebuilt dev copies get a new signature, which can leave a stale denial.
+    func askForPermissionAgain() {
+        guard let bundleId = Bundle.main.bundleIdentifier else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let reset = Process()
+            reset.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+            reset.arguments = ["reset", "AppleEvents", bundleId]
+            try? reset.run()
+            reset.waitUntilExit()
+            DispatchQueue.main.async { SpotifyModel.shared.refresh() }
+        }
+    }
+
+    func openAutomationSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     func refresh() {
+        // One osascript at a time; a pending permission prompt blocks it.
+        guard !refreshInFlight else { return }
+        refreshInFlight = true
         Self.run("""
         if application "Spotify" is running then
             tell application "Spotify"
@@ -416,6 +446,7 @@ final class SpotifyModel: ObservableObject {
             return "notrunning"
         end if
         """) { [weak self] output, error in
+            self?.refreshInFlight = false
             self?.apply(output: output, error: error)
         }
     }
@@ -500,7 +531,7 @@ private struct SpotifyWidgetView: View {
                     VStack(spacing: 10) {
                         Image(systemName: "music.note").font(.largeTitle).foregroundStyle(.secondary)
                         Button(String(localized: "appWidget.spotify.open", defaultValue: "Open Spotify"), action: spotify.openSpotify)
-                        if let error = spotify.lastError { errorText(error) }
+                        if let error = spotify.lastError, !spotify.needsPermission { errorText(error) }
                     }
                 case .stopped:
                     VStack(spacing: 10) {
@@ -520,6 +551,9 @@ private struct SpotifyWidgetView: View {
             .frame(width: size.width, height: size.height)
         }
         .padding(10)
+        .overlay(alignment: .top) {
+            if spotify.needsPermission { permissionBanner }
+        }
         .background(Color(red: 0.07, green: 0.07, blue: 0.08))
         .foregroundStyle(.white)
         .onAppear { spotify.viewerAppeared() }
@@ -586,6 +620,22 @@ private struct SpotifyWidgetView: View {
             Button { spotify.next() } label: { Image(systemName: "forward.fill") }
         }
         .buttonStyle(.plain)
+    }
+
+    private var permissionBanner: some View {
+        VStack(spacing: 6) {
+            Text(String(localized: "appWidget.spotify.permission", defaultValue: "Allow cmux to control Spotify"))
+                .font(.caption.bold())
+            HStack {
+                Button(String(localized: "appWidget.spotify.askAgain", defaultValue: "Ask Again"), action: spotify.askForPermissionAgain)
+                Button(String(localized: "appWidget.spotify.openSettings", defaultValue: "Open Settings"), action: spotify.openAutomationSettings)
+            }
+            .controlSize(.small)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity)
+        .background(Color.red.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+        .padding(6)
     }
 
     private func errorText(_ error: String) -> some View {

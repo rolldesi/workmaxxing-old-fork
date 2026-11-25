@@ -79,32 +79,43 @@ extension Workspace {
     /// Share of the workspace's width and height the enlarged box takes.
     private static let enlargedShare = 0.7
 
+    /// A triple-click inside a terminal box (see GhosttyNSView.mouseDown).
+    static func boxTripleClicked(panelId: UUID) {
+        // After the click's own focus change settles.
+        DispatchQueue.main.async {
+            _ = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId)?
+                .workspace.toggleBoxEnlarge(panelId: panelId)
+        }
+    }
+
     /// Grows the box to ~70% of the workspace in both directions, shrinking
-    /// the rest; a second double-click, or focusing another box, restores it.
+    /// the rest; doing it again, or focusing another box, restores it.
     func toggleBoxEnlarge(panelId: UUID) -> Bool {
-        if let enlarged = enlargedBox {
+        let previous = enlargedBox
+        if previous?.panelId == panelId {
             restoreEnlargedBox()
-            if enlarged.panelId == panelId { return true }
+            return true
         }
         guard let paneId = paneId(forPanelId: panelId),
               let path = Self.splitPath(bonsplitController.treeSnapshot(), to: paneId.id.uuidString),
-              !path.isEmpty else { return true }
+              !path.isEmpty else {
+            restoreEnlargedBox()
+            return true
+        }
         let depthByOrientation = Dictionary(grouping: path, by: { $0.split.orientation }).mapValues(\.count)
+        // Undo the previous box's enlarge in the same motion.
+        var targets = previous?.savedPositions ?? [:]
         var saved: [UUID: Double] = [:]
         for (split, targetIsFirst) in path {
             guard let splitId = UUID(uuidString: split.id) else { continue }
             // Each split on the way shares the growth, so nested splits of one
             // orientation multiply out to the target share.
             let share = pow(Self.enlargedShare, 1 / Double(depthByOrientation[split.orientation] ?? 1))
-            saved[splitId] = split.dividerPosition
-            _ = bonsplitController.setDividerPosition(
-                CGFloat(targetIsFirst ? share : 1 - share),
-                forSplit: splitId,
-                fromExternal: true
-            )
+            saved[splitId] = previous?.savedPositions[splitId] ?? split.dividerPosition
+            targets[splitId] = targetIsFirst ? share : 1 - share
         }
         enlargedBox = EnlargedBox(paneId: paneId, panelId: panelId, savedPositions: saved)
-        didProgrammaticallyChangeSplitGeometry()
+        animateDividers(to: targets)
         return true
     }
 
@@ -112,10 +123,43 @@ extension Workspace {
     func restoreEnlargedBox() {
         guard let enlarged = enlargedBox else { return }
         enlargedBox = nil
-        for (splitId, position) in enlarged.savedPositions {
-            _ = bonsplitController.setDividerPosition(CGFloat(position), forSplit: splitId, fromExternal: true)
+        animateDividers(to: enlarged.savedPositions)
+    }
+
+    /// Moves dividers to their targets along a slightly bouncy spring.
+    private func animateDividers(to targets: [UUID: Double]) {
+        boxEnlargeAnimation?.invalidate()
+        var starts: [UUID: Double] = [:]
+        Self.collectDividerPositions(bonsplitController.treeSnapshot(), into: &starts)
+        let begin = CACurrentMediaTime()
+        let duration = 0.45
+        boxEnlargeAnimation = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self else { timer.invalidate(); return }
+                let t = min(1, (CACurrentMediaTime() - begin) / duration)
+                // Damped spring: ~5% overshoot, settled by t = 1.
+                let progress = t >= 1 ? 1 : 1 - exp(-7 * t) * cos(9 * t)
+                for (splitId, target) in targets {
+                    let from = starts[splitId] ?? target
+                    _ = self.bonsplitController.setDividerPosition(
+                        CGFloat(from + (target - from) * progress),
+                        forSplit: splitId,
+                        fromExternal: true
+                    )
+                }
+                guard t >= 1 else { return }
+                timer.invalidate()
+                self.boxEnlargeAnimation = nil
+                self.didProgrammaticallyChangeSplitGeometry()
+            }
         }
-        didProgrammaticallyChangeSplitGeometry()
+    }
+
+    private static func collectDividerPositions(_ node: ExternalTreeNode, into positions: inout [UUID: Double]) {
+        guard case .split(let split) = node else { return }
+        if let id = UUID(uuidString: split.id) { positions[id] = split.dividerPosition }
+        collectDividerPositions(split.first, into: &positions)
+        collectDividerPositions(split.second, into: &positions)
     }
 
     func restoreEnlargedBoxIfFocusLeft(toPane pane: PaneID) {

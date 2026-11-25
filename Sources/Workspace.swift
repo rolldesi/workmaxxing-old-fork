@@ -4608,8 +4608,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         bonsplitController.onTabZoomToggleRequest = { [weak self] tabId, _ in
             guard let self,
                   let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
-            // Fork: a tab double-click enlarges the box instead of hiding the others.
-            return self.toggleBoxEnlarge(panelId: panelId)
+            return self.toggleSplitZoom(panelId: panelId)
         }
         bonsplitController.onTabFullWidthToggleRequest = { [weak self] tabId, _ in
             guard let self,
@@ -4913,6 +4912,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     /// The box a tab double-click enlarged, until focus leaves it. See BoxChrome.swift.
     var enlargedBox: EnlargedBox?
+    var boxEnlargeAnimation: Timer?
     /// Red/green traffic lights the user already clicked, by box. See BoxChrome.swift.
     var trafficLightSeen: [UUID: AgentHibernationLifecycleState] = [:]
 
