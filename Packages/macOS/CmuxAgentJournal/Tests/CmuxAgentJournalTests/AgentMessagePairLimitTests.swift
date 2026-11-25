@@ -85,9 +85,35 @@ struct AgentMessagePairLimitTests {
         #expect(throws: limitHit) { try send(store, from: "a", to: "b") }
     }
 
+    @Test("A refused pair is capped until a raise or a human prompt frees it, per pair")
+    func cappedSurfaces() throws {
+        let changes = Counter()
+        let store = AgentMessageStore(fileURL: nil, pairMessageLimit: 1, onPairLimitsChange: { changes.bump() })
+        _ = try send(store, from: "a", to: "b")
+        _ = try send(store, from: "a", to: "c")
+        #expect(store.cappedSurfaceIds().isEmpty)
+        #expect(throws: AgentMessageBlockedError.self) { try send(store, from: "b", to: "a") }
+        #expect(throws: AgentMessageBlockedError.self) { try send(store, from: "c", to: "a") }
+        #expect(store.cappedSurfaceIds() == ["a", "b", "c"])
+        _ = store.claimQueued(recipientSurfaceId: "b", via: "claude.prompt-submit")
+        #expect(store.cappedSurfaceIds() == ["a", "c"])
+        store.raisePairLimit(surfaceId: "c", otherSurfaceId: "a", by: 1)
+        #expect(store.cappedSurfaceIds().isEmpty)
+        #expect(changes.value == 4)
+        _ = store.claimQueued(recipientSurfaceId: "a", via: "claude.prompt-submit")
+        #expect(changes.value == 4)
+    }
+
     @Test("No limit is applied unless one is configured")
     func unlimitedByDefault() throws {
         let store = AgentMessageStore(fileURL: nil)
         for _ in 0..<50 { _ = try send(store, from: "a", to: "b") }
     }
+}
+
+private final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var value: Int { lock.withLock { count } }
+    func bump() { lock.withLock { count += 1 } }
 }

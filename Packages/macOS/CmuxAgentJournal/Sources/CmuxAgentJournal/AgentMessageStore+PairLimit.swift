@@ -14,18 +14,34 @@ extension AgentMessageStore {
     /// Lets the pair exchange `by` more messages before it is stopped again.
     public func raisePairLimit(surfaceId: String, otherSurfaceId: String, by: Int) {
         let key = Self.pairKey(surfaceId, otherSurfaceId)
-        lock.withLock { pairExtra[key, default: 0] += by }
+        let unblocked = lock.withLock {
+            pairExtra[key, default: 0] += by
+            return pairBlocked.remove(key) != nil
+        }
+        if unblocked { onPairLimitsChange?() }
     }
 
     /// Raises every pair `surfaceId` has messaged in, for the app's
     /// per-box "allow more" button. Returns how many pairs it raised.
     @discardableResult
     public func raisePairLimits(involving surfaceId: String, by: Int) -> Int {
-        lock.withLock {
+        let (count, unblocked) = lock.withLock {
             let keys = pairKeysLocked(involving: surfaceId)
-            for key in keys { pairExtra[key, default: 0] += by }
-            return keys.count
+            var unblocked = false
+            for key in keys {
+                pairExtra[key, default: 0] += by
+                if pairBlocked.remove(key) != nil { unblocked = true }
+            }
+            return (keys.count, unblocked)
         }
+        if unblocked { onPairLimitsChange?() }
+        return count
+    }
+
+    /// Surfaces in a pair that was refused a message since its last raise or
+    /// reset; the app greys these boxes.
+    public func cappedSurfaceIds() -> Set<String> {
+        lock.withLock { Set(pairBlocked.flatMap { $0.split(separator: "|").map(String.init) }) }
     }
 
     private func pairKeysLocked(involving surfaceId: String) -> [String] {
@@ -47,6 +63,7 @@ extension AgentMessageStore {
               let key = limitedPairKey(draft.senderSurfaceId, draft.recipientSurfaceId) else { return nil }
         let allowed = limit + pairExtra[key, default: 0]
         guard pairSent[key, default: 0] >= allowed else { return nil }
+        pairBlocked.insert(key)
         return .pairLimitReached(surfaceIds: key.split(separator: "|").map(String.init), limit: allowed)
     }
 
@@ -56,11 +73,14 @@ extension AgentMessageStore {
         pairSent[key, default: 0] += 1
     }
 
-    /// Must hold `lock`.
-    func resetPairsLocked(surfaceId: String) {
+    /// Must hold `lock`. Returns whether a blocked pair was freed.
+    func resetPairsLocked(surfaceId: String) -> Bool {
+        var unblocked = false
         for key in pairKeysLocked(involving: surfaceId) {
             pairSent[key] = nil
             pairExtra[key] = nil
+            if pairBlocked.remove(key) != nil { unblocked = true }
         }
+        return unblocked
     }
 }

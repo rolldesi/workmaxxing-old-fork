@@ -16,6 +16,7 @@ enum AgentMessageCenter {
             fileURL: defaultFileURL(),
             isEnabled: { AgentMessageCenter.isEnabled() },
             pairMessageLimit: pairMessageLimit,
+            onPairLimitsChange: { Task { @MainActor in AgentMessageCenter.applyCappedSurfaces() } },
             onChange: { change in
                 let message = change.message
                 CmuxEventBus.shared.publish(
@@ -50,6 +51,22 @@ enum AgentMessageCenter {
     /// "allow more" control) lets them continue.
     static let pairMessageLimit = 10
     static let pairMessageLimitStep = 10
+
+    /// Greys every box whose agent was refused a message by the pair limit,
+    /// and ungreys the rest. Reads the store, so out-of-order calls settle on
+    /// the current state.
+    // ponytail: Dock and canvas terminals are not greyed; add when they host agents.
+    @MainActor
+    static func applyCappedSurfaces() {
+        guard let app = AppDelegate.shared else { return }
+        let capped = store.cappedSurfaceIds()
+        let managers = app.listMainWindowSummaries().compactMap { app.tabManagerFor(windowId: $0.windowId) }
+        for workspace in managers.flatMap(\.tabs) {
+            for case let panel as TerminalPanel in workspace.panels.values {
+                panel.hostedView.agentMessagesCapped = capped.contains(panel.id.uuidString)
+            }
+        }
+    }
 
     /// Opens the store (journal replay, the launch sweep, maybe a compaction)
     /// on a background queue at launch, so the first command palette open or

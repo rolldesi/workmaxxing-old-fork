@@ -109,6 +109,11 @@ public final class AgentMessageStore: @unchecked Sendable {
     // ponytail: pair counters are in memory, so a restart starts every pair over.
     var pairSent: [String: Int] = [:]
     var pairExtra: [String: Int] = [:]
+    /// Pairs refused a message and not yet raised or reset.
+    var pairBlocked: Set<String> = []
+    /// Called, outside the lock, when the set of capped surfaces may have
+    /// changed; read ``cappedSurfaceIds()`` for the current set.
+    let onPairLimitsChange: (@Sendable () -> Void)?
 
     // Lock justification: socket handlers call in synchronously from worker
     // threads and need the stored message back in the same call; every
@@ -142,6 +147,7 @@ public final class AgentMessageStore: @unchecked Sendable {
         makeId: @escaping @Sendable () -> String = { UUID().uuidString.lowercased() },
         isEnabled: @escaping @Sendable () -> Bool = { true },
         pairMessageLimit: Int? = nil,
+        onPairLimitsChange: (@Sendable () -> Void)? = nil,
         onChange: (@Sendable (AgentMessageStoreChange) -> Void)? = nil
     ) {
         self.fileURL = fileURL
@@ -149,6 +155,7 @@ public final class AgentMessageStore: @unchecked Sendable {
         self.makeId = makeId
         self.isEnabled = isEnabled
         self.pairMessageLimit = pairMessageLimit
+        self.onPairLimitsChange = onPairLimitsChange
         self.onChange = onChange
         if let fileURL {
             load(from: fileURL)
@@ -167,7 +174,8 @@ public final class AgentMessageStore: @unchecked Sendable {
     @discardableResult
     public func append(_ draft: AgentMessageDraft) throws -> AgentMessage {
         let draft = try draft.validated()
-        let message = try lock.withLock {
+        let message: AgentMessage
+        do { message = try lock.withLock {
             if let block = blockLocked(
                 recipientSurfaceId: draft.recipientSurfaceId,
                 recipientWorkspaceId: draft.recipientWorkspaceId
@@ -206,6 +214,9 @@ public final class AgentMessageStore: @unchecked Sendable {
                 compact(to: fileURL)
             }
             return message
+        } } catch let error as AgentMessageBlockedError {
+            if case .pairLimitReached = error.block { onPairLimitsChange?() }
+            throw error
         }
         onChange?(AgentMessageStoreChange(message: message, state: .queued))
         return message
@@ -218,7 +229,9 @@ public final class AgentMessageStore: @unchecked Sendable {
     public func claimQueued(recipientSurfaceId: String, via: String) -> [AgentMessage] {
         beforeDeliveryLockForTesting?()
         if via.hasSuffix(".prompt-submit") {
-            lock.withLock { resetPairsLocked(surfaceId: recipientSurfaceId) }
+            if lock.withLock({ resetPairsLocked(surfaceId: recipientSurfaceId) }) {
+                onPairLimitsChange?()
+            }
         }
         return advance(
             where: {

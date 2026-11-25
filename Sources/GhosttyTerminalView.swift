@@ -10787,6 +10787,12 @@ final class GhosttySurfaceScrollView: NSView {
     private let inactiveOverlayView: GhosttyFlashOverlayView
     private var inactiveOverlayColor: NSColor = .clear
     private var inactiveOverlayOpacity: CGFloat = 0
+    private var inactiveOverlayVisible = false
+    /// Greys the box, focused or not, while its agent is out of messages to
+    /// another agent. Set by `AgentMessageCenter.applyCappedSurfaces()`.
+    var agentMessagesCapped = false {
+        didSet { if agentMessagesCapped != oldValue { setInactiveOverlayVisible(inactiveOverlayVisible) } }
+    }
     private let dropZoneOverlayView: GhosttyFlashOverlayView
     lazy var dropZoneOverlayAnimator = PaneDropZoneOverlayAnimator(overlayView: dropZoneOverlayView)
     private let paneDropTargetView = TerminalPaneDropTargetView(frame: .zero)
@@ -11989,10 +11995,16 @@ final class GhosttySurfaceScrollView: NSView {
         let clampedOpacity = max(0, min(1, opacity))
         inactiveOverlayColor = color
         inactiveOverlayOpacity = clampedOpacity
+        inactiveOverlayVisible = visible
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        inactiveOverlayView.layer?.backgroundColor = color.withAlphaComponent(clampedOpacity).cgColor
-        inactiveOverlayView.isHidden = !(visible && clampedOpacity > 0.0001)
+        if agentMessagesCapped {
+            inactiveOverlayView.layer?.backgroundColor = NSColor.systemGray.withAlphaComponent(0.45).cgColor
+            inactiveOverlayView.isHidden = false
+        } else {
+            inactiveOverlayView.layer?.backgroundColor = color.withAlphaComponent(clampedOpacity).cgColor
+            inactiveOverlayView.isHidden = !(visible && clampedOpacity > 0.0001)
+        }
         CATransaction.commit()
     }
 
