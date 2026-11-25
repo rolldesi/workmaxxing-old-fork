@@ -298,7 +298,7 @@
 	<key>SUAutomaticallyUpdate</key>
 	<false/>
 	<key>SUEnableAutomaticChecks</key>
-	<true/>
+	<false/>
 	<key>SUFeedURL</key>
 	<string>https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml</string>
 	<key>SUPublicEDKey</key>

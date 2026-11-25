@@ -20,6 +20,7 @@ RELEASE_FLAG=()
 # Workmaxxing doesn't use cmux Cloud's VPN tunnel: build its stub engine
 # instead of requiring Go, and only this Mac's CPU architecture.
 CMUX_WIREGUARD_GO_REQUIRE="${CMUX_WIREGUARD_GO_REQUIRE:-0}" \
+CMUX_DEV_CLOUD_ENABLED=0 \
 CMUX_DEV_ONLY_ACTIVE_ARCH="${CMUX_DEV_ONLY_ACTIVE_ARCH:-1}" \
 CMUX_DEV_APP_DISPLAY_NAME="Workmaxxing" \
 CMUX_DEV_SIGN_IDENTITY="${WORKMAXXING_SIGN_IDENTITY:--}" \

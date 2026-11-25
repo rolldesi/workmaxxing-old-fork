@@ -31,7 +31,8 @@ final class CmuxFeatureFlags {
     static let shared = CmuxFeatureFlags(publishesOffMainSnapshot: true)
 
     private static let mobileConnectButtonDefault = false
-    private static let sidebarAccountButtonDefault = true
+    // Workmaxxing: no account or cloud machines in a personal build.
+    private static let sidebarAccountButtonDefault = false
 
     private static let agentChatUIDefault = false
     #if DEBUG
@@ -48,7 +49,7 @@ final class CmuxFeatureFlags {
     private nonisolated static let mobileTaskComposerDefault = true
     private static let goPlanDefault = false
     private static let agentInboxQuickViewDefault = false
-    nonisolated static let cloudMachinesDefault = true
+    nonisolated static let cloudMachinesDefault = false
     private nonisolated static let conversationSidebarDefault = false
     /// Off in every build. App-host test processes alone run with it on, so
     /// the existing Chief tests keep exercising Chief.

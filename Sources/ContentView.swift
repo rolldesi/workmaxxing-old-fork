@@ -15841,7 +15841,14 @@ struct SidebarFooterButtons: View {
     }
 
     private func shows(_ control: SidebarFooterControl) -> Bool {
-        SidebarFooterPresentationPolicy.isVisible(control, presentationMode: presentationMode)
+        // Workmaxxing: personal build, no account, cloud, upgrade, phone pairing
+        // or updates from upstream cmux (they would replace this app).
+        switch control {
+        case .account, .cloud, .upgrade, .mobileConnect, .update:
+            return false
+        default:
+            return SidebarFooterPresentationPolicy.isVisible(control, presentationMode: presentationMode)
+        }
     }
 
     var body: some View {
