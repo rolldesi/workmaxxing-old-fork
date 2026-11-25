@@ -10788,6 +10788,12 @@ final class GhosttySurfaceScrollView: NSView {
     private var inactiveOverlayColor: NSColor = .clear
     private var inactiveOverlayOpacity: CGFloat = 0
     private var inactiveOverlayVisible = false
+    // Fork box chrome (BoxChrome.swift): tint, outline and agent traffic light,
+    // installed on first use above the terminal.
+    private let boxChromeOverlayView = GhosttyFlashOverlayView(frame: .zero)
+    private let boxOutlineLayer = CAShapeLayer()
+    private let trafficLightLayer = CAShapeLayer()
+    private var boxChrome = BoxChrome()
     /// Greys the box, focused or not, while its agent is out of messages to
     /// another agent. Set by `AgentMessageCenter.applyCappedSurfaces()`.
     var agentMessagesCapped = false {
@@ -11628,6 +11634,10 @@ final class GhosttySurfaceScrollView: NSView {
         }
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
+        if boxChromeOverlayView.superview != nil {
+            _ = setFrameIfNeeded(boxChromeOverlayView, to: bounds)
+            updateBoxChromePaths()
+        }
         _ = setFrameIfNeeded(linkHoverIndicatorView, to: contentFrame)
         _ = setFrameIfNeeded(passwordInputIndicatorView, to: contentFrame)
         if let cloudTerminalReconnectOverlayView { _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: contentFrame) }
@@ -12013,6 +12023,51 @@ final class GhosttySurfaceScrollView: NSView {
     /// visibility and active state.
     func setInactiveOverlayVisible(_ visible: Bool) {
         setInactiveOverlay(color: inactiveOverlayColor, opacity: inactiveOverlayOpacity, visible: visible)
+    }
+
+    func setBoxChrome(_ chrome: BoxChrome) {
+        guard chrome != boxChrome else { return }
+        boxChrome = chrome
+        if boxChromeOverlayView.superview == nil {
+            boxChromeOverlayView.wantsLayer = true
+            boxChromeOverlayView.layer?.masksToBounds = false
+            boxChromeOverlayView.autoresizingMask = [.width, .height]
+            boxChromeOverlayView.frame = bounds
+            for layer in [boxOutlineLayer, trafficLightLayer] {
+                layer.fillColor = NSColor.clear.cgColor
+                boxChromeOverlayView.layer?.addSublayer(layer)
+            }
+            boxOutlineLayer.lineWidth = 2
+            trafficLightLayer.lineWidth = 3
+            trafficLightLayer.lineJoin = .round
+            trafficLightLayer.shadowOpacity = 0.8
+            trafficLightLayer.shadowRadius = 6
+            trafficLightLayer.shadowOffset = .zero
+            addSubview(boxChromeOverlayView)
+            updateBoxChromePaths()
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        boxChromeOverlayView.layer?.backgroundColor = (chrome.tint?.withAlphaComponent(0.14) ?? .clear).cgColor
+        boxOutlineLayer.strokeColor = chrome.outline?.cgColor
+        trafficLightLayer.strokeColor = chrome.trafficLight?.cgColor
+        trafficLightLayer.shadowColor = chrome.trafficLight?.cgColor
+        boxChromeOverlayView.isHidden = chrome == BoxChrome()
+        CATransaction.commit()
+    }
+
+    private func updateBoxChromePaths() {
+        let bounds = boxChromeOverlayView.bounds
+        boxOutlineLayer.frame = bounds
+        boxOutlineLayer.path = bounds.width > 4 && bounds.height > 4
+            ? CGPath(rect: bounds.insetBy(dx: 1, dy: 1), transform: nil)
+            : nil
+        updateOverlayRingPath(
+            layer: trafficLightLayer,
+            bounds: bounds,
+            inset: NotificationRingMetrics.inset,
+            radius: NotificationRingMetrics.cornerRadius
+        )
     }
 
     func setNotificationRing(visible: Bool) {

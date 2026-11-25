@@ -410,6 +410,7 @@
 		D0B10010A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */; };
 		D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */; };
 		AA1B2C3D4E5F60718 /* BonsplitTabDragUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */; };
+		ED4B67D035B267DE67AFB677 /* BoxChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8944B70EFF44651B29DE99A3 /* BoxChrome.swift */; };
 		B7E1A0000000000000000002 /* browser-repl in Resources */ = {isa = PBXBuildFile; fileRef = B7E1A0000000000000000001 /* browser-repl */; };
 		986900080000000000000001 /* BrowserAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986900080000000000000002 /* BrowserAction.swift */; };
 		986900020000000000000001 /* BrowserActionDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986900020000000000000002 /* BrowserActionDispatcher.swift */; };
@@ -5287,6 +5288,7 @@
 		D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabBarDebug.swift; sourceTree = "<group>"; };
 		D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabBarPassThrough.swift; sourceTree = "<group>"; };
 		AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabDragUITests.swift; sourceTree = "<group>"; };
+		8944B70EFF44651B29DE99A3 /* BoxChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoxChrome.swift; sourceTree = "<group>"; };
 		B7E1A0000000000000000001 /* browser-repl */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "browser-repl"; sourceTree = "<group>"; };
 		986900080000000000000002 /* BrowserAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserAction.swift; sourceTree = "<group>"; };
 		986900020000000000000002 /* BrowserActionDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserActionDispatcher.swift; sourceTree = "<group>"; };
@@ -12560,6 +12562,7 @@
 				C037CA7A6B20B3F495BAB401 /* PortTerminalDeviceLookup.swift */,
 				7195972CC9EBB2353ACFF8AB /* TestProcessDefaults.swift */,
 				B4D8C93336B3DC2F9B4299AA /* AgentMessageCenter.swift */,
+				8944B70EFF44651B29DE99A3 /* BoxChrome.swift */,
 				7ED7809AAA226469E36BA9FF /* TerminalController+AgentMessageSettings.swift */,
 				FC151062CCF4CC6D451CD24C /* ContentView+AgentMessagesCommandPalette.swift */,
 				DC48FD734E4CB28E454E8CDA /* RightSidebarModeBarTabWidths.swift */,
@@ -15476,6 +15479,7 @@
 				74060000000000000000001B /* BonsplitConfiguration+RemoteTmuxEmbedded.swift in Sources */,
 					D0B10010A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift in Sources */,
 				D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */,
+				ED4B67D035B267DE67AFB677 /* BoxChrome.swift in Sources */,
 				986900080000000000000001 /* BrowserAction.swift in Sources */,
 				986900020000000000000001 /* BrowserActionDispatcher.swift in Sources */,
 				986900030000000000000001 /* BrowserActionTarget.swift in Sources */,

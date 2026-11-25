@@ -59,12 +59,9 @@ enum AgentMessageCenter {
     @MainActor
     static func applyCappedSurfaces() {
         guard let app = AppDelegate.shared else { return }
-        let capped = store.cappedSurfaceIds()
         let managers = app.listMainWindowSummaries().compactMap { app.tabManagerFor(windowId: $0.windowId) }
         for workspace in managers.flatMap(\.tabs) {
-            for case let panel as TerminalPanel in workspace.panels.values {
-                panel.hostedView.agentMessagesCapped = capped.contains(panel.id.uuidString)
-            }
+            workspace.refreshBoxChrome()
         }
     }
 

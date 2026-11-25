@@ -4594,7 +4594,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         bonsplitController.onTabZoomToggleRequest = { [weak self] tabId, _ in
             guard let self,
                   let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
-            return self.toggleSplitZoom(panelId: panelId)
+            // Fork: a tab double-click enlarges the box instead of hiding the others.
+            return self.toggleBoxEnlarge(panelId: panelId)
         }
         bonsplitController.onTabFullWidthToggleRequest = { [weak self] tabId, _ in
             guard let self,
@@ -4877,6 +4878,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Registers a bonsplit surface as the active owner for a panel.
     func bindSurface(_ surfaceId: TabID, toPanelId panelId: UUID) {
         paneTree.bindSurface(surfaceId, toPanelId: panelId)
+        // Paint saved colors and agent state once the new box is registered.
+        DispatchQueue.main.async { [weak self] in self?.refreshBoxChrome() }
     }
 
     /// Removes one bonsplit surface mapping.
@@ -4893,6 +4896,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// This is used by app-level confirmation prompts (for example, Close Tab) so the
     /// Bonsplit delegate doesn't block the close after the user already confirmed.
     private var forceCloseTabIds: Set<TabID> = []
+
+    /// The box a tab double-click enlarged, until focus leaves it. See BoxChrome.swift.
+    var enlargedBox: EnlargedBox?
 
     /// Tab IDs that are currently showing (or about to show) a close confirmation prompt.
     /// Prevents repeated close gestures (e.g., middle-click spam) from stacking dialogs.
@@ -14121,6 +14127,7 @@ extension Workspace: BonsplitDelegate {
         previousTerminalHostedView: GhosttySurfaceScrollView? = nil
     ) {
         guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
+        restoreEnlargedBoxIfFocusLeft(toPane: pane)
         tmuxOverlaySelectionRevision &+= 1
         let effectiveFocusTransactionId = focusTransactionId ?? activeFocusTransactionId
         pendingTabSelection = PendingTabSelectionRequest(
